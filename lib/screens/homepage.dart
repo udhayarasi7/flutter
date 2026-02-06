@@ -466,6 +466,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
                         const SizedBox(height: 20),
 
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildFeatureCard(
+                                icon: Icons.person_search_rounded,
+                                title: 'Find a Blood\nDonor',
+                                color: Colors.teal.shade400,
+                                onTap: () {
+                                  // Navigate to find donor
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildFeatureCard(
+                                icon: Icons.local_hospital_rounded,
+                                title: 'Blood\nBank',
+                                color: Colors.teal.shade400,
+                                onTap: () {
+                                  // Navigate to blood bank
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
                         // Donation Cooldown Card
                         _buildGlassCard(
                           child: Padding(
@@ -566,105 +594,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         const SizedBox(height: 20),
 
                         // Your Impact Card
-                        _buildGlassCard(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Colors.purple.shade600,
-                              Colors.purple.shade700,
-                            ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    const Text(
-                                      'Your Impact',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.trending_up_rounded,
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'You\'re making a real difference!',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            '5',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 32,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Emergency responses',
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(0.8),
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            '15L',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 32,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Blood donated',
-                                            style: TextStyle(
-                                              color: Colors.white.withOpacity(0.8),
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
+                        
                         const SizedBox(height: 20),
 
                         // Quick Actions Header
@@ -676,19 +606,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             color: Colors.black87,
                           ),
                         ),
-
-                        const SizedBox(height: 15),
-
-                        // Quick Action Buttons
-                        _buildQuickActionButton(
-                          icon: Icons.add_circle_outline,
-                          title: 'Schedule Donation',
-                          subtitle: 'Book your next appointment',
-                          color: Colors.red.shade400,
-                          onTap: () {
-                            // Navigate to schedule donation
-                          },
-                        ),
+                        
                         const SizedBox(height: 12),
                         _buildQuickActionButton(
                           icon: Icons.location_on_outlined,
@@ -730,6 +648,52 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: color.withOpacity(0.6),
         shape: BoxShape.circle,
+      ),
+    );
+  }
+  Widget _buildFeatureCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return _buildGlassCard(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
