@@ -1,3 +1,4 @@
+import 'package:firstapp/screens/Menu/main_menu.dart';
 import 'package:flutter/material.dart';
 import 'dart:ui';
 
@@ -98,6 +99,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: const SlideDrawer(),
       backgroundColor: Colors.white,
       body: Stack(
         children: [
@@ -207,21 +209,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           padding: const EdgeInsets.symmetric(horizontal: 20),
                           child: Row(
                             children: [
-                              // Menu icon
-                              InkWell(
-                                onTap: () {
-                                  // Handle menu tap
-                                  print('Menu tapped');
+                              // Menu icon - WRAPPED IN BUILDER
+                              Builder(
+                                builder: (context) {
+                                  return InkWell(
+                                    onTap: () {
+                                      Scaffold.of(context).openDrawer();
+                                    },
+                                    borderRadius: BorderRadius.circular(15),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.menu_rounded,
+                                        size: 28,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
+                                  );
                                 },
-                                borderRadius: BorderRadius.circular(15),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Icon(
-                                    Icons.menu_rounded,
-                                    size: 28,
-                                    color: Colors.grey.shade800,
-                                  ),
-                                ),
                               ),
                               const SizedBox(width: 15),
                               // Home text

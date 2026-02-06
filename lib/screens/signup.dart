@@ -1,3 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firstapp/screens/homepage.dart';
+import 'package:firstapp/service/google_signin_service.dart';
 import 'package:flutter/material.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -25,6 +28,14 @@ class _SignupScreenState extends State<SignupScreen>
   late Animation<Offset> _bottomLeftAnimation;
   late Animation<Offset> _bottomLeftSmallAnimation;
   late Animation<Offset> _bottomRightAnimation;
+
+  final GoogleSignInService _googleSignInService = GoogleSignInService();
+  
+  // Loading states
+  bool _isLoading = false;
+  bool _isProcessing = false;
+  bool _isGoogleLoading = false;
+  bool _isFacebookLoading = false;
 
   @override
   void initState() {
@@ -80,6 +91,113 @@ class _SignupScreenState extends State<SignupScreen>
       end: const Offset(-12, -15),
     ).animate(CurvedAnimation(parent: _bottomRightController, curve: Curves.easeInOut));
   }
+
+  // Google Sign In
+  Future<void> _handleGoogleSignIn() async {
+    // Prevent multiple simultaneous sign-in attempts
+    if (_isGoogleLoading || _isProcessing) {
+      print('⚠️ Google sign-in already in progress');
+      return;
+    }
+
+    setState(() {
+      _isGoogleLoading = true;
+      _isProcessing = true;
+    });
+
+    try {
+      print('🔵 Starting Google sign-in...');
+      
+      final UserCredential? userCredential = await _googleSignInService.signInWithGoogle();
+
+      if (!mounted) return;
+
+      // User cancelled the sign-in
+      if (userCredential == null) {
+        print('🔵 User cancelled Google sign-in');
+        if (mounted) {
+          setState(() {
+            _isGoogleLoading = false;
+            _isProcessing = false;
+          });
+        }
+        return;
+      }
+
+      if (userCredential.user != null) {
+        print('🔵 ✅ Google sign-in successful!');
+        _showSuccessSnackBar('Welcome ${userCredential.user!.displayName ?? "User"}!');
+        
+        // Small delay to show success message
+        await Future.delayed(const Duration(milliseconds: 200));
+        
+        if (!mounted) return;
+        
+        // Navigate to HomePage
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+        );
+      }
+    } on Exception catch (e) {
+      if (!mounted) return;
+      
+      // Extract error message from exception
+      String errorMessage = e.toString().replaceAll('Exception: ', '');
+      _showErrorSnackBar(errorMessage);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Google sign-in failed. Please try again.');
+      print('🔵 ❌ Error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGoogleLoading = false;
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  // Facebook Sign In (placeholder)
+  Future<void> _handleFacebookSignIn() async {
+    setState(() {
+      _isFacebookLoading = true;
+    });
+    
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (mounted) {
+      setState(() {
+        _isFacebookLoading = false;
+      });
+      _showErrorSnackBar('Facebook sign-in coming soon!');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
