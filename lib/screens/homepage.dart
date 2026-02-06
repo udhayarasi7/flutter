@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firstapp/service/google_signin_service.dart';
+// Import the service
+import 'package:firstapp/service/donation_status_service.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -28,15 +31,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late Animation<Offset> _centerAnimation;
 
   // Donation status
-  bool isDonationAvailable = true;
+  bool isDonationAvailable = false;
+  bool isLoading = true;
 
-  // Get user info
+  // Services
   final GoogleSignInService _authService = GoogleSignInService();
-
+final DonationStatus _donationStatus = DonationStatus();
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
+    _loadDonationStatus();
+    _setUserPresence(true);
+  }
 
+  void _initializeAnimations() {
     // Top right large blob
     _topRightController = AnimationController(
       duration: const Duration(seconds: 4),
@@ -102,6 +111,106 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       end: const Offset(20, -25),
     ).animate(
         CurvedAnimation(parent: _centerController, curve: Curves.easeInOut));
+  }
+
+  /// Load donation status from Realtime Database
+  Future<void> _loadDonationStatus() async {
+    try {
+      final statusData = await _donationStatus.getDonationStatus();
+      
+      if (statusData != null) {
+        setState(() {
+          isDonationAvailable = statusData['isAvailable'] ?? false;
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading donation status: $e');
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  /// Update donation status when toggle changes
+  /// ON = "active" in database
+  /// OFF = "inactive" in database
+  Future<void> _updateDonationAvailability(bool value) async {
+    // Optimistically update UI
+    setState(() {
+      isDonationAvailable = value;
+    });
+
+    // Update in Realtime Database
+    bool success = await _donationStatus.updateDonationStatus(value);
+
+    if (success) {
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  value ? Icons.check_circle : Icons.cancel,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    value
+                        ? 'Status: Active - You are now available for donation'
+                        : 'Status: Inactive - You are not available for donation',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: value ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    } else {
+      // Revert the toggle if update failed
+      setState(() {
+        isDonationAvailable = !value;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text('Failed to update status. Please try again.'),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Set user presence (online/offline)
+  Future<void> _setUserPresence(bool isOnline) async {
+    await _donationStatus.setUserPresence(isOnline);
   }
 
   @override
@@ -244,7 +353,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 'Home',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
@@ -283,7 +391,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       children: [
                         const SizedBox(height: 10),
 
-                        // Welcome Card with Red Background
+                        // Welcome Card with Donation Status Toggle
                         ClipRRect(
                           borderRadius: BorderRadius.circular(25),
                           child: Container(
@@ -378,7 +486,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     ],
                                   ),
                                   const SizedBox(height: 20),
-                                  // Donation Status Row
+                                  
+                                  // Donation Status Row with Real-time Updates
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(15),
                                     child: BackdropFilter(
@@ -408,7 +517,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                               ),
                                               child: Icon(
                                                 Icons.water_drop,
-                                                color: Colors.red.shade600,
+                                                color: isDonationAvailable
+                                                    ? Colors.green.shade600
+                                                    : Colors.red.shade600,
                                                 size: 20,
                                               ),
                                             ),
@@ -429,8 +540,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                   const SizedBox(height: 2),
                                                   Text(
                                                     isDonationAvailable
-                                                        ? 'Available for donation'
-                                                        : 'Not available',
+                                                        ? 'Active - Available for donation'
+                                                        : 'Inactive - Not available',
                                                     style: const TextStyle(
                                                       color: Colors.white70,
                                                       fontSize: 12,
@@ -439,13 +550,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                 ],
                                               ),
                                             ),
+                                            // Toggle Switch with loading state
                                             Switch(
                                               value: isDonationAvailable,
-                                              onChanged: (value) {
-                                                setState(() {
-                                                  isDonationAvailable = value;
-                                                });
-                                              },
+                                              onChanged: isLoading
+                                                  ? null
+                                                  : _updateDonationAvailability,
                                               activeColor: Colors.green,
                                               activeTrackColor:
                                                   Colors.green.shade200,
@@ -593,10 +703,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
                         const SizedBox(height: 20),
 
-                        // Your Impact Card
-                        
-                        const SizedBox(height: 20),
-
                         // Quick Actions Header
                         const Text(
                           'Quick Actions',
@@ -606,17 +712,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             color: Colors.black87,
                           ),
                         ),
-                        
-                        const SizedBox(height: 12),
-                        _buildQuickActionButton(
-                          icon: Icons.location_on_outlined,
-                          title: 'Find Blood Banks',
-                          subtitle: 'Locate nearby donation centers',
-                          color: Colors.blue.shade400,
-                          onTap: () {
-                            // Navigate to blood banks
-                          },
-                        ),
+
                         const SizedBox(height: 12),
                         _buildQuickActionButton(
                           icon: Icons.history_rounded,
@@ -651,6 +747,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       ),
     );
   }
+
   Widget _buildFeatureCard({
     required IconData icon,
     required String title,
@@ -709,9 +806,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Container(
           decoration: BoxDecoration(
             gradient: gradient,
-            color: gradient == null
-                ? Colors.white.withOpacity(0.7)
-                : null,
+            color: gradient == null ? Colors.white.withOpacity(0.7) : null,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: Colors.white.withOpacity(0.4),
@@ -840,6 +935,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _setUserPresence(false); // Mark user as offline
     _topRightController.dispose();
     _topRightSmallController.dispose();
     _bottomLeftController.dispose();
