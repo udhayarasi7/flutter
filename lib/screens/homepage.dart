@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firstapp/service/google_signin_service.dart';
-// Import the service
 import 'package:firstapp/service/donation_status_service.dart';
-
+import 'package:firstapp/service/user_profile_service.dart'; 
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -34,14 +33,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   bool isDonationAvailable = false;
   bool isLoading = true;
 
+  // Blood group state variables - ADDED
+  String? _bloodGroup;
+  bool _isLoadingBloodGroup = true;
+
   // Services
   final GoogleSignInService _authService = GoogleSignInService();
-final DonationStatus _donationStatus = DonationStatus();
+  final DonationStatus _donationStatus = DonationStatus();
+  final UserProfileService _profileService = UserProfileService(); // ADDED
+
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
     _loadDonationStatus();
+    _loadBloodGroup(); // FIXED: Added semicolon
     _setUserPresence(true);
   }
 
@@ -113,11 +119,34 @@ final DonationStatus _donationStatus = DonationStatus();
         CurvedAnimation(parent: _centerController, curve: Curves.easeInOut));
   }
 
+  Future<void> _loadBloodGroup() async {
+    try {
+      final profileData = await _profileService.getUserProfile();
+      if (profileData != null && mounted) {
+        setState(() {
+          _bloodGroup = profileData['bloodGroup'];
+          _isLoadingBloodGroup = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingBloodGroup = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading blood group: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingBloodGroup = false;
+        });
+      }
+    }
+  }
+
   /// Load donation status from Realtime Database
   Future<void> _loadDonationStatus() async {
     try {
       final statusData = await _donationStatus.getDonationStatus();
-      
+
       if (statusData != null) {
         setState(() {
           isDonationAvailable = statusData['isAvailable'] ?? false;
@@ -217,7 +246,6 @@ final DonationStatus _donationStatus = DonationStatus();
   Widget build(BuildContext context) {
     final User? currentUser = _authService.currentUser;
     final String userName = currentUser?.displayName ?? 'Guest User';
-    final String bloodType = 'O+';
 
     return Scaffold(
       drawer: const SlideDrawer(),
@@ -446,53 +474,129 @@ final DonationStatus _donationStatus = DonationStatus();
                                           ),
                                         ],
                                       ),
-                                      // Blood type badge
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color:
-                                                  Colors.black.withOpacity(0.1),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Column(
-                                          children: [
-                                            Icon(
-                                              Icons.water_drop,
-                                              color: Colors.red.shade600,
-                                              size: 24,
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              bloodType,
-                                              style: TextStyle(
-                                                color: Colors.red.shade600,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
+                                      // Blood type badge - FIXED
+                                      _isLoadingBloodGroup
+                                          ? Container(
+                                              padding: const EdgeInsets.all(20),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withOpacity(0.1),
+                                                    blurRadius: 10,
+                                                    offset: const Offset(0, 4),
+                                                  ),
+                                                ],
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
+                                              child: const SizedBox(
+                                                width: 24,
+                                                height: 24,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                        strokeWidth: 2),
+                                              ),
+                                            )
+                                          : (_bloodGroup != null &&
+                                                  _bloodGroup!.isNotEmpty)
+                                              ? Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 16,
+                                                    vertical: 12,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withOpacity(0.1),
+                                                        blurRadius: 10,
+                                                        offset:
+                                                            const Offset(0, 4),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.water_drop,
+                                                        color: Colors
+                                                            .red.shade600,
+                                                        size: 24,
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        _bloodGroup!,
+                                                        style: TextStyle(
+                                                          color: Colors
+                                                              .red.shade600,
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                )
+                                              : Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 16,
+                                                    vertical: 12,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey.shade100,
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withOpacity(0.1),
+                                                        blurRadius: 10,
+                                                        offset:
+                                                            const Offset(0, 4),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        Icons
+                                                            .water_drop_outlined,
+                                                        color: Colors
+                                                            .grey.shade600,
+                                                        size: 24,
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        '--',
+                                                        style: TextStyle(
+                                                          color: Colors
+                                                              .grey.shade600,
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
                                     ],
                                   ),
                                   const SizedBox(height: 20),
-                                  
+
                                   // Donation Status Row with Real-time Updates
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(15),
                                     child: BackdropFilter(
-                                      filter:
-                                          ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                                      filter: ImageFilter.blur(
+                                          sigmaX: 5, sigmaY: 5),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 16,
@@ -500,9 +604,11 @@ final DonationStatus _donationStatus = DonationStatus();
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.white.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(15),
+                                          borderRadius:
+                                              BorderRadius.circular(15),
                                           border: Border.all(
-                                            color: Colors.white.withOpacity(0.3),
+                                            color:
+                                                Colors.white.withOpacity(0.3),
                                             width: 1,
                                           ),
                                         ),
@@ -534,7 +640,8 @@ final DonationStatus _donationStatus = DonationStatus();
                                                     style: TextStyle(
                                                       color: Colors.white,
                                                       fontSize: 16,
-                                                      fontWeight: FontWeight.bold,
+                                                      fontWeight:
+                                                          FontWeight.bold,
                                                     ),
                                                   ),
                                                   const SizedBox(height: 2),
