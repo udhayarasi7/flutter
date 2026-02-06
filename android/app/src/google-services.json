@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1093750614537",
+    "project_id": "blooddonate-607e7",
+    "storage_bucket": "blooddonate-607e7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1093750614537:android:9914fe8d459904c2b2e6d8",
+        "android_client_info": {
+          "package_name": "com.example.firstapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1093750614537-9icvn8f5vmvjoant6vls1fo8ud6mc9qt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.firstapp",
+            "certificate_hash": "a665603a876369b14dc2c91d282510e6cdafd089"
+          }
+        },
+        {
+          "client_id": "1093750614537-kaqqe89675o2n3ctieebptnds8tqu52g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDAOLVFQfBECt_CFiiqd6AXgg5gTpXGf_Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1093750614537-kaqqe89675o2n3ctieebptnds8tqu52g.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
