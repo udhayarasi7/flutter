@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firstapp/service/register_hospital_statues_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
 
 class HospitalEntryPage extends StatefulWidget {
   const HospitalEntryPage({Key? key}) : super(key: key);
@@ -12,8 +16,12 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
   final _hospitalNameController = TextEditingController();
   final _hospitalAddressController = TextEditingController();
   final _contactNumberController = TextEditingController();
+  final RegisterHospitalService _hospitalService = RegisterHospitalService();
 
   bool _isChecked = false;
+  bool _isSubmitting = false;
+  File? _licenseFile;
+  File? _certificateFile;
 
   // Animation controllers for blobs
   late AnimationController _topRightController;
@@ -435,7 +443,9 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Hospital License Proof'),
+                        _buildUploadBox('Hospital License Proof', _licenseFile, (file) {
+                          setState(() => _licenseFile = file);
+                        }),
 
                         const SizedBox(height: 20),
 
@@ -449,7 +459,9 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Registration Certificate'),
+                        _buildUploadBox('Registration Certificate', _certificateFile, (file) {
+                          setState(() => _certificateFile = file);
+                        }),
 
                         const SizedBox(height: 24),
 
@@ -488,10 +500,8 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: _isChecked
-                                ? () {
-                                    // Handle submit
-                                  }
+                            onPressed: (_isChecked && !_isSubmitting)
+                                ? _submitHospitalRegistration
                                 : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue.shade700,
@@ -502,14 +512,23 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                               ),
                               elevation: 0,
                             ),
-                            child: const Text(
-                              'Submit for Verification',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Submit for Verification',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                           ),
                         ),
 
@@ -552,44 +571,111 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
     );
   }
 
-  Widget _buildUploadBox(String label) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.grey.shade300,
-          width: 2,
-          style: BorderStyle.solid,
+  Future<void> _submitHospitalRegistration() async {
+    if (_hospitalNameController.text.trim().isEmpty ||
+        _hospitalAddressController.text.trim().isEmpty ||
+        _contactNumberController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill all required fields'),
+          backgroundColor: Colors.red,
         ),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.cloud_upload_outlined,
-            color: Colors.grey.shade400,
-            size: 40,
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final success = await _hospitalService.submitHospitalRegistration(
+        hospitalName: _hospitalNameController.text.trim(),
+        hospitalAddress: _hospitalAddressController.text.trim(),
+        contactNumber: _contactNumberController.text.trim(),
+      );
+
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hospital registered successfully!'),
+            backgroundColor: Colors.green,
           ),
-          const SizedBox(height: 12),
-          const Text(
-            'Click to upload',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
+        );
+        Navigator.pop(context);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to submit registration. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  Widget _buildUploadBox(String label, File? file, Function(File?) onFilePicked) {
+    return GestureDetector(
+      onTap: () async {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+        );
+        if (result != null) {
+          onFilePicked(File(result.files.single.path!));
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+        decoration: BoxDecoration(
+          color: file != null ? Colors.green.shade50 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: file != null ? Colors.green.shade300 : Colors.grey.shade300,
+            width: 2,
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              file != null ? Icons.check_circle_outline : Icons.cloud_upload_outlined,
+              color: file != null ? Colors.green.shade600 : Colors.grey.shade400,
+              size: 40,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'PDF, JPG or PNG (max 5MB)',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
+            const SizedBox(height: 12),
+            Text(
+              file != null ? 'File selected' : 'Click to upload',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: file != null ? Colors.green.shade700 : Colors.black87,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              file != null ? file.path.split('/').last : 'PDF, JPG or PNG (max 5MB)',
+              style: TextStyle(
+                fontSize: 12,
+                color: file != null ? Colors.green.shade600 : Colors.grey.shade600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

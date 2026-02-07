@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../service/register_blood_center_service.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 class BloodCenterPage extends StatefulWidget {
   const BloodCenterPage({Key? key}) : super(key: key);
@@ -15,6 +18,12 @@ class _BloodCenterPageState extends State<BloodCenterPage>
   final _emailController = TextEditingController();
 
   bool _isChecked = false;
+  bool _isSubmitting = false;
+  final RegisterBloodCenterService _service = RegisterBloodCenterService();
+
+  File? _licenseFile;
+  File? _certificateFile;
+  File? _accreditationFile;
 
   // Animation controllers for blobs
   late AnimationController _topRightController;
@@ -475,7 +484,9 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Blood Bank License'),
+                        _buildUploadBox('Blood Bank License', _licenseFile, (file) {
+                          setState(() => _licenseFile = file);
+                        }),
 
                         const SizedBox(height: 20),
 
@@ -489,7 +500,9 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Registration Certificate'),
+                        _buildUploadBox('Registration Certificate', _certificateFile, (file) {
+                          setState(() => _certificateFile = file);
+                        }),
 
                         const SizedBox(height: 20),
 
@@ -503,7 +516,9 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Accreditation Certificate'),
+                        _buildUploadBox('Accreditation Certificate', _accreditationFile, (file) {
+                          setState(() => _accreditationFile = file);
+                        }),
 
                         const SizedBox(height: 24),
 
@@ -542,11 +557,7 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: _isChecked
-                                ? () {
-                                    // Handle submit
-                                  }
-                                : null,
+                            onPressed: _isChecked && !_isSubmitting ? _submitForm : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue.shade700,
                               disabledBackgroundColor: Colors.grey.shade300,
@@ -556,14 +567,23 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                               ),
                               elevation: 0,
                             ),
-                            child: const Text(
-                              'Submit for Verification',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Submit for Verification',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                           ),
                         ),
 
@@ -595,6 +615,54 @@ class _BloodCenterPageState extends State<BloodCenterPage>
     );
   }
 
+  Future<void> _submitForm() async {
+    if (_centerNameController.text.isEmpty ||
+        _centerAddressController.text.isEmpty ||
+        _contactNumberController.text.isEmpty ||
+        _emailController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill all required fields'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      await _service.registerBloodCenter(
+        centerName: _centerNameController.text.trim(),
+        centerAddress: _centerAddressController.text.trim(),
+        contactNumber: _contactNumberController.text.trim(),
+        email: _emailController.text.trim(),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Blood center registered successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Registration failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
   Widget _buildBlob(double size, Color color) {
     return Container(
       width: size,
@@ -606,44 +674,72 @@ class _BloodCenterPageState extends State<BloodCenterPage>
     );
   }
 
-  Widget _buildUploadBox(String label) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.grey.shade300,
-          width: 2,
-          style: BorderStyle.solid,
+  Widget _buildUploadBox(String label, File? file, Function(File?) onFilePicked) {
+    return GestureDetector(
+      onTap: () async {
+        try {
+          final result = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+          );
+          if (result != null && result.files.single.path != null) {
+            onFilePicked(File(result.files.single.path!));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${result.files.single.name} selected'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          }
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error picking file: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+        decoration: BoxDecoration(
+          color: file != null ? Colors.green.shade50 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: file != null ? Colors.green.shade300 : Colors.grey.shade300,
+            width: 2,
+          ),
         ),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.cloud_upload_outlined,
-            color: Colors.grey.shade400,
-            size: 40,
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Click to upload',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              color: Colors.black87,
+        child: Column(
+          children: [
+            Icon(
+              file != null ? Icons.check_circle : Icons.cloud_upload_outlined,
+              color: file != null ? Colors.green : Colors.grey.shade400,
+              size: 40,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'PDF, JPG or PNG (max 5MB)',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
+            const SizedBox(height: 12),
+            Text(
+              file != null ? 'File uploaded' : 'Click to upload',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: file != null ? Colors.green.shade700 : Colors.black87,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              file != null ? file.path.split(Platform.pathSeparator).last : 'PDF, JPG or PNG (max 5MB)',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -2,11 +2,16 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/login.dart';
-import 'screens/homepage.dart';
+import 'screens/homepage/homepage.dart';
+import 'service/notification_service.dart';
 
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  
   runApp(const MyApp());
 }
 

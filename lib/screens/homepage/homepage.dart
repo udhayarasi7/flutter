@@ -2,9 +2,14 @@ import 'package:firstapp/screens/Menu/main_menu.dart';
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firstapp/service/google_signin_service.dart';
 import 'package:firstapp/service/donation_status_service.dart';
-import 'package:firstapp/service/user_profile_service.dart'; 
+import 'package:firstapp/service/user_profile_service.dart';
+import 'package:firstapp/screens/homepage/find_bloodpage.dart';
+import 'package:firstapp/screens/homepage/notify_page.dart';
+import 'package:firstapp/screens/homepage/hospital_detail_page.dart';
+import 'package:firstapp/service/notify_service.dart'; 
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -40,15 +45,57 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Services
   final GoogleSignInService _authService = GoogleSignInService();
   final DonationStatus _donationStatus = DonationStatus();
-  final UserProfileService _profileService = UserProfileService(); // ADDED
+  final UserProfileService _profileService = UserProfileService();
+  final NotifyService _notifyService = NotifyService();
+  int _unreadCount = 0;
+  String? _hospitalId;
+  String? _hospitalName;
+  bool _isLoadingHospital = true;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
     _loadDonationStatus();
-    _loadBloodGroup(); // FIXED: Added semicolon
+    _loadBloodGroup();
     _setUserPresence(true);
+    _loadUnreadCount();
+    _loadHospitalInfo();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final count = await _notifyService.getUnreadCount();
+    if (mounted) {
+      setState(() => _unreadCount = count);
+    }
+  }
+
+  Future<void> _loadHospitalInfo() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final hospitalSnapshot = await FirebaseDatabase.instance
+          .ref('hospital_registrations/${user.uid}')
+          .get();
+
+      if (hospitalSnapshot.exists && mounted) {
+        final data = hospitalSnapshot.value as Map;
+        if (data['status'] == 'approved') {
+          setState(() {
+            _hospitalId = user.uid;
+            _hospitalName = data['hospitalName'];
+            _isLoadingHospital = false;
+          });
+        } else {
+          setState(() => _isLoadingHospital = false);
+        }
+      } else {
+        setState(() => _isLoadingHospital = false);
+      }
+    } catch (e) {
+      setState(() => _isLoadingHospital = false);
+    }
   }
 
   void _initializeAnimations() {
@@ -388,19 +435,53 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                 ),
                               ),
                               const Spacer(),
-                              InkWell(
-                                onTap: () {
-                                  print('Notification tapped');
-                                },
-                                borderRadius: BorderRadius.circular(15),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Icon(
-                                    Icons.notifications_outlined,
-                                    size: 26,
-                                    color: Colors.grey.shade800,
+                              Stack(
+                                children: [
+                                  InkWell(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => const NotifyPage(),
+                                        ),
+                                      ).then((_) => _loadUnreadCount());
+                                    },
+                                    borderRadius: BorderRadius.circular(15),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.notifications_outlined,
+                                        size: 26,
+                                        color: Colors.grey.shade800,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  if (_unreadCount > 0)
+                                    Positioned(
+                                      right: 6,
+                                      top: 6,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.shade600,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 16,
+                                          minHeight: 16,
+                                        ),
+                                        child: Text(
+                                          _unreadCount > 9 ? '9+' : '$_unreadCount',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ),
@@ -683,93 +764,276 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
                         const SizedBox(height: 20),
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildFeatureCard(
-                                icon: Icons.person_search_rounded,
-                                title: 'Find a Blood\nDonor',
-                                color: Colors.teal.shade400,
-                                onTap: () {
-                                  // Navigate to find donor
-                                },
+                        // Hospital Card (only for hospital users)
+                        if (!_isLoadingHospital && _hospitalId != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(25),
+                            child: Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.white.withOpacity(0.2),
+                                    Colors.teal.withOpacity(0.1),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(25),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.grey.shade200,
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => HospitalDetailPage(
+                                          hospitalId: _hospitalId!,
+                                          hospitalName: _hospitalName ?? 'Hospital',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(25),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(14),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(16),
+                                          ),
+                                          child: Icon(
+                                            Icons.medical_services,
+                                            color: Colors.red.shade600,
+                                            size: 28,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 20),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                _hospitalName ?? 'Hospital',
+                                                style: const TextStyle(
+                                                  fontSize: 22,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                'Manage blood inventory',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.arrow_forward_ios_rounded,
+                                          color: Colors.grey.shade400,
+                                          size: 20,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildFeatureCard(
-                                icon: Icons.local_hospital_rounded,
-                                title: 'Blood\nBank',
-                                color: Colors.teal.shade400,
+                          ),
+
+                        if (!_isLoadingHospital && _hospitalId != null)
+                          const SizedBox(height: 20),
+
+                        // Find a Blood Card
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(25),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withOpacity(0.2),
+                                  Colors.teal.withOpacity(0.1),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(25),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.shade200,
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
                                 onTap: () {
-                                  // Navigate to blood bank
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const FindBloodPage(),
+                                    ),
+                                  );
                                 },
+                                borderRadius: BorderRadius.circular(25),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: Icon(
+                                          Icons.bloodtype_rounded,
+                                          color: Colors.red.shade600,
+                                          size: 28,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Find a Blood',
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Search for donors and blood banks',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        color: Colors.grey.shade400,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
 
                         const SizedBox(height: 20),
 
                         // Donation Cooldown Card
-                        _buildGlassCard(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.shade50,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    Icons.calendar_today_rounded,
-                                    color: Colors.orange.shade600,
-                                    size: 28,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'Donation Cooldown',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Next eligible donation in 60 days',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.orange.shade700,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: LinearProgressIndicator(
-                                          value: 0.4,
-                                          backgroundColor:
-                                              Colors.orange.shade100,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                            Colors.orange.shade600,
-                                          ),
-                                          minHeight: 6,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(25),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withOpacity(0.2),
+                                  Colors.teal.withOpacity(0.1),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(25),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.shade200,
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
                                 ),
                               ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.teal.shade400,
+                                          Colors.teal.shade600,
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      Icons.calendar_today_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Donation Cooldown',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Next eligible donation in 60 days',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: LinearProgressIndicator(
+                                            value: 0.4,
+                                            backgroundColor:
+                                                Colors.teal.shade100,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                              Colors.teal.shade600,
+                                            ),
+                                            minHeight: 6,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -780,29 +1044,173 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         Row(
                           children: [
                             Expanded(
-                              child: _buildStatCard(
-                                icon: Icons.water_drop,
-                                value: '5',
-                                label: 'Donations',
-                                color: Colors.blue.shade400,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(25),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Colors.white.withOpacity(0.2),
+                                        Colors.teal.withOpacity(0.1),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(25),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.shade200,
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.water_drop,
+                                          color: Colors.blue.shade400,
+                                          size: 32,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          '5',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Donations',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: _buildStatCard(
-                                icon: Icons.star_rounded,
-                                value: '250',
-                                label: 'Points',
-                                color: Colors.purple.shade400,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(25),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Colors.white.withOpacity(0.2),
+                                        Colors.teal.withOpacity(0.1),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(25),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.shade200,
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.star_rounded,
+                                          color: Colors.purple.shade400,
+                                          size: 32,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          '250',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Points',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: _buildStatCard(
-                                icon: Icons.favorite_rounded,
-                                value: '12',
-                                label: 'Lives Saved',
-                                color: Colors.green.shade400,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(25),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Colors.white.withOpacity(0.2),
+                                        Colors.teal.withOpacity(0.1),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(25),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.shade200,
+                                        blurRadius: 20,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.favorite_rounded,
+                                          color: Colors.green.shade400,
+                                          size: 32,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                          '12',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Lives Saved',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -821,14 +1229,90 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ),
 
                         const SizedBox(height: 12),
-                        _buildQuickActionButton(
-                          icon: Icons.history_rounded,
-                          title: 'Donation History',
-                          subtitle: 'View your past donations',
-                          color: Colors.green.shade400,
-                          onTap: () {
-                            // Navigate to history
-                          },
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(25),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withOpacity(0.2),
+                                  Colors.teal.withOpacity(0.1),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(25),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.shade200,
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  // Navigate to history
+                                },
+                                borderRadius: BorderRadius.circular(25),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              Colors.teal.shade400,
+                                              Colors.teal.shade600,
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Icon(
+                                          Icons.history_rounded,
+                                          color: Colors.white,
+                                          size: 28,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Donation History',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              'View your past donations',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Colors.grey.shade400,
+                                        size: 24,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
 
                         const SizedBox(height: 30),
