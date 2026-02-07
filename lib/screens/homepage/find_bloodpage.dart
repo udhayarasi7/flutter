@@ -46,10 +46,20 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
   }
 
   Future<void> _searchUsers() async {
-    if (_selectedBloodGroups.isEmpty || (!_showDonors && !_showBanks)) {
+    if (!_showDonors && !_showBanks) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select at least one blood group and search category'),
+          content: Text('Please select a search category (Blood Donors or Blood Banks)'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (_showDonors && _selectedBloodGroups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select at least one blood group for Blood Donors search'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -59,36 +69,63 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
     setState(() => _isSearching = true);
 
     try {
-      final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
-      final donorsRef = FirebaseDatabase.instance.ref('donors');
       List<Map<String, dynamic>> matched = [];
 
-      for (var doc in usersSnapshot.docs) {
-        final data = doc.data();
-        final bloodGroup = data['bloodGroup'];
-        final latitude = data['latitude'];
-        final longitude = data['longitude'];
-        final name = data['name'] ?? 'Unknown';
+      // Search for Blood Donors
+      if (_showDonors) {
+        final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
+        final donorsRef = FirebaseDatabase.instance.ref('donors');
 
-        if (bloodGroup != null && 
-            _selectedBloodGroups.contains(bloodGroup) &&
-            latitude != null && 
-            longitude != null) {
-          
-          final donorSnapshot = await donorsRef.child(doc.id).get();
-          if (donorSnapshot.exists) {
-            final donorData = donorSnapshot.value as Map;
-            final donationStatus = donorData['donationStatus'];
+        for (var doc in usersSnapshot.docs) {
+          final data = doc.data();
+          final bloodGroup = data['bloodGroup'];
+          final latitude = data['latitude'];
+          final longitude = data['longitude'];
+          final name = data['name'] ?? 'Unknown';
+
+          if (bloodGroup != null && 
+              _selectedBloodGroups.contains(bloodGroup) &&
+              latitude != null && 
+              longitude != null) {
             
-            if (donationStatus == 'active') {
-              matched.add({
-                'id': doc.id,
-                'name': name,
-                'bloodGroup': bloodGroup,
-                'latitude': latitude,
-                'longitude': longitude,
-              });
+            final donorSnapshot = await donorsRef.child(doc.id).get();
+            if (donorSnapshot.exists) {
+              final donorData = donorSnapshot.value as Map;
+              final donationStatus = donorData['donationStatus'];
+              
+              if (donationStatus == 'active') {
+                matched.add({
+                  'id': doc.id,
+                  'name': name,
+                  'bloodGroup': bloodGroup,
+                  'latitude': latitude,
+                  'longitude': longitude,
+                  'type': 'donor',
+                });
+              }
             }
+          }
+        }
+      }
+
+      // Search for Blood Banks
+      if (_showBanks) {
+        final bloodBanksSnapshot = await FirebaseFirestore.instance.collection('blood_bank').get();
+
+        for (var doc in bloodBanksSnapshot.docs) {
+          final data = doc.data();
+          final latitude = data['latitude'];
+          final longitude = data['longitude'];
+          final name = data['hospitalName'] ?? 'Blood Bank';
+
+          if (latitude != null && longitude != null) {
+            matched.add({
+              'id': doc.id,
+              'name': name,
+              'latitude': latitude,
+              'longitude': longitude,
+              'type': 'blood_bank',
+            });
           }
         }
       }
@@ -101,8 +138,10 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
 
       if (matched.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No active donors found matching your criteria'),
+          SnackBar(
+            content: Text(_showBanks && !_showDonors 
+              ? 'No blood banks found' 
+              : 'No active donors found matching your criteria'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -111,7 +150,7 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
       setState(() => _isSearching = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error searching users: $e'),
+          content: Text('Error searching: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -602,8 +641,8 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                                           ),
                                         ),
                                         Icon(
-                                          Icons.location_on,
-                                          color: Colors.blue.shade600,
+                                          user['type'] == 'blood_bank' ? Icons.local_hospital : Icons.person_pin_circle,
+                                          color: user['type'] == 'blood_bank' ? Colors.green.shade600 : Colors.blue.shade600,
                                           size: 30,
                                         ),
                                       ],

@@ -1,4 +1,5 @@
 import 'package:firstapp/screens/Menu/profile_page/profile_page.dart';
+import 'package:firstapp/screens/Menu/settings_page.dart';
 import 'package:firstapp/screens/login.dart';
 import 'package:firstapp/service/google_signin_service.dart';
 import 'package:flutter/material.dart';
@@ -182,8 +183,13 @@ class SlideDrawer extends StatelessWidget {
                         icon: Icons.settings_outlined,
                         title: 'Settings',
                         onTap: () {
-                          Navigator.pop(context); // Close drawer
-                          // TODO: Navigate to settings page
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SettingsPage(),
+                            ),
+                          );
                         },
                       ),
                       const SizedBox(height: 30),

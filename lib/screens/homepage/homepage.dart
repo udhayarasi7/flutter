@@ -1,9 +1,11 @@
-import 'package:firstapp/screens/Menu/main_menu.dart';
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firstapp/service/google_signin_service.dart';
+import 'package:firstapp/screens/Menu/main_menu.dart';
+import 'package:firstapp/screens/Menu/donation_history_page.dart';
 import 'package:firstapp/service/donation_status_service.dart';
 import 'package:firstapp/service/user_profile_service.dart';
 import 'package:firstapp/screens/homepage/find_bloodpage.dart';
@@ -41,6 +43,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // Blood group state variables - ADDED
   String? _bloodGroup;
   bool _isLoadingBloodGroup = true;
+  String? _gender;
+  int? _lastDonationTimestamp;
+  int _daysRemaining = 0;
+  double _cooldownProgress = 0.0;
 
   // Services
   final GoogleSignInService _authService = GoogleSignInService();
@@ -50,6 +56,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _unreadCount = 0;
   String? _hospitalId;
   String? _hospitalName;
+  String? _hospitalType;
   bool _isLoadingHospital = true;
 
   @override
@@ -58,6 +65,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _initializeAnimations();
     _loadDonationStatus();
     _loadBloodGroup();
+    _loadCooldownData();
     _setUserPresence(true);
     _loadUnreadCount();
     _loadHospitalInfo();
@@ -75,24 +83,45 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      final hospitalSnapshot = await FirebaseDatabase.instance
-          .ref('hospital_registrations/${user.uid}')
+      // Check hospitals collection first
+      final hospitalDoc = await FirebaseFirestore.instance
+          .collection('hospitals')
+          .doc(user.uid)
           .get();
 
-      if (hospitalSnapshot.exists && mounted) {
-        final data = hospitalSnapshot.value as Map;
-        if (data['status'] == 'approved') {
+      if (hospitalDoc.exists && mounted) {
+        final data = hospitalDoc.data();
+        if (data != null && data['status'] == 'approved') {
           setState(() {
             _hospitalId = user.uid;
             _hospitalName = data['hospitalName'];
+            _hospitalType = data['type'] ?? 'hospital';
             _isLoadingHospital = false;
           });
-        } else {
-          setState(() => _isLoadingHospital = false);
+          return;
         }
-      } else {
-        setState(() => _isLoadingHospital = false);
       }
+
+      // Check blood_bank collection
+      final bloodBankDoc = await FirebaseFirestore.instance
+          .collection('blood_bank')
+          .doc(user.uid)
+          .get();
+
+      if (bloodBankDoc.exists && mounted) {
+        final data = bloodBankDoc.data();
+        if (data != null && data['status'] == 'approved') {
+          setState(() {
+            _hospitalId = user.uid;
+            _hospitalName = data['hospitalName'];
+            _hospitalType = 'blood_center';
+            _isLoadingHospital = false;
+          });
+          return;
+        }
+      }
+
+      setState(() => _isLoadingHospital = false);
     } catch (e) {
       setState(() => _isLoadingHospital = false);
     }
@@ -172,6 +201,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       if (profileData != null && mounted) {
         setState(() {
           _bloodGroup = profileData['bloodGroup'];
+          _gender = profileData['gender'];
           _isLoadingBloodGroup = false;
         });
       } else {
@@ -187,6 +217,46 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
       }
     }
+  }
+
+  Future<void> _loadCooldownData() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final snapshot = await FirebaseDatabase.instance
+          .ref('donors/${user.uid}')
+          .get();
+
+      if (snapshot.exists && mounted) {
+        final data = snapshot.value as Map;
+        final lastDonation = data['lastDonationDate'];
+        
+        if (lastDonation != null) {
+          setState(() {
+            _lastDonationTimestamp = lastDonation;
+            _calculateCooldown();
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading cooldown data: $e');
+    }
+  }
+
+  void _calculateCooldown() {
+    if (_lastDonationTimestamp == null || _gender == null) return;
+
+    final lastDonation = DateTime.fromMillisecondsSinceEpoch(_lastDonationTimestamp!);
+    final now = DateTime.now();
+    final daysPassed = now.difference(lastDonation).inDays;
+    
+    final cooldownDays = _gender?.toLowerCase() == 'male' ? 90 : 120;
+    _daysRemaining = cooldownDays - daysPassed;
+    
+    if (_daysRemaining < 0) _daysRemaining = 0;
+    _cooldownProgress = daysPassed / cooldownDays;
+    if (_cooldownProgress > 1.0) _cooldownProgress = 1.0;
   }
 
   /// Load donation status from Realtime Database
@@ -216,16 +286,25 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// ON = "active" in database
   /// OFF = "inactive" in database
   Future<void> _updateDonationAvailability(bool value) async {
-    // Optimistically update UI
+    if (value && _daysRemaining > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('You can donate again in $_daysRemaining days'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       isDonationAvailable = value;
     });
 
-    // Update in Realtime Database
     bool success = await _donationStatus.updateDonationStatus(value);
 
     if (success) {
-      // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -255,7 +334,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       }
     } else {
-      // Revert the toggle if update failed
       setState(() {
         isDonationAvailable = !value;
       });
@@ -814,7 +892,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             borderRadius: BorderRadius.circular(16),
                                           ),
                                           child: Icon(
-                                            Icons.medical_services,
+                                            _hospitalType == 'blood_center' ? Icons.bloodtype : Icons.local_hospital,
                                             color: Colors.red.shade600,
                                             size: 28,
                                           ),
@@ -980,8 +1058,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
                                         colors: [
-                                          Colors.teal.shade400,
-                                          Colors.teal.shade600,
+                                          _daysRemaining > 0 ? Colors.orange.shade400 : Colors.teal.shade400,
+                                          _daysRemaining > 0 ? Colors.orange.shade600 : Colors.teal.shade600,
                                         ],
                                       ),
                                       borderRadius: BorderRadius.circular(12),
@@ -1008,7 +1086,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          'Next eligible donation in 60 days',
+                                          _daysRemaining > 0
+                                              ? 'Next eligible donation in $_daysRemaining days'
+                                              : 'You can donate now!',
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: Colors.grey.shade600,
@@ -1019,12 +1099,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                         ClipRRect(
                                           borderRadius: BorderRadius.circular(10),
                                           child: LinearProgressIndicator(
-                                            value: 0.4,
+                                            value: _cooldownProgress,
                                             backgroundColor:
-                                                Colors.teal.shade100,
+                                                Colors.grey.shade200,
                                             valueColor:
                                                 AlwaysStoppedAnimation<Color>(
-                                              Colors.teal.shade600,
+                                              _daysRemaining > 0 ? Colors.orange.shade600 : Colors.teal.shade600,
                                             ),
                                             minHeight: 6,
                                           ),
@@ -1254,7 +1334,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               color: Colors.transparent,
                               child: InkWell(
                                 onTap: () {
-                                  // Navigate to history
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const DonationHistoryPage(),
+                                    ),
+                                  );
                                 },
                                 borderRadius: BorderRadius.circular(25),
                                 child: Padding(

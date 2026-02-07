@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import '../../service/notify_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class NotifyPage extends StatefulWidget {
   const NotifyPage({Key? key}) : super(key: key);
@@ -159,6 +161,8 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                         itemBuilder: (context, index) {
                           final notification = notifications[index];
                           final isRead = notification['read'] ?? false;
+                          final isAccepted = notification['accepted'] ?? false;
+                          final acceptedBy = notification['acceptedBy'];
                           final timestamp = notification['timestamp'] as Timestamp?;
                           final timeAgo = timestamp != null
                               ? _getTimeAgo(timestamp.toDate())
@@ -225,12 +229,12 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                                     Container(
                                       padding: const EdgeInsets.all(10),
                                       decoration: BoxDecoration(
-                                        color: Colors.red.shade50,
+                                        color: isAccepted ? Colors.grey.shade100 : Colors.red.shade50,
                                         shape: BoxShape.circle,
                                       ),
                                       child: Icon(
-                                        Icons.water_drop,
-                                        color: Colors.red.shade600,
+                                        isAccepted ? Icons.check_circle : Icons.water_drop,
+                                        color: isAccepted ? Colors.grey.shade600 : Colors.red.shade600,
                                         size: 24,
                                       ),
                                     ),
@@ -243,7 +247,7 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                                             children: [
                                               Expanded(
                                                 child: Text(
-                                                  'Blood Request',
+                                                  isAccepted ? 'Request Accepted' : 'Blood Request',
                                                   style: TextStyle(
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.bold,
@@ -270,13 +274,59 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                                               color: Colors.grey.shade700,
                                             ),
                                           ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            timeAgo,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade500,
+                                          if (isAccepted && acceptedBy != null)
+                                            const SizedBox(height: 4),
+                                          if (isAccepted && acceptedBy != null)
+                                            Text(
+                                              'Accepted by another donor',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.orange.shade700,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  timeAgo,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey.shade500,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (!isAccepted)
+                                                ElevatedButton(
+                                                  onPressed: () => _acceptDonation(notification),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.red.shade600,
+                                                    foregroundColor: Colors.white,
+                                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(8),
+                                                    ),
+                                                  ),
+                                                  child: const Text('Donate', style: TextStyle(fontSize: 13)),
+                                                )
+                                              else
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey.shade200,
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: Text(
+                                                    'Closed',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey.shade700,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ],
                                       ),
@@ -297,6 +347,81 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
         ],
       ),
     );
+  }
+
+  Future<void> _acceptDonation(Map<String, dynamic> notification) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      final notificationId = notification['id'];
+      final senderName = notification['senderName'];
+      final message = notification['message'];
+      final hospitalId = notification['hospitalId'];
+      final bloodGroup = notification['recipientBloodGroup'];
+      
+      // Mark current user's notification as accepted
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .collection('notifications')
+          .doc(notificationId)
+          .update({
+        'accepted': true,
+        'acceptedBy': currentUser.uid,
+        'acceptedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Delete all other users' matching notifications
+      final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
+      int deletedCount = 0;
+      for (var doc in usersSnapshot.docs) {
+        if (doc.id != currentUser.uid) {
+          final userNotifications = await doc.reference.collection('notifications').get();
+          for (var notifDoc in userNotifications.docs) {
+            final data = notifDoc.data();
+            if (data['senderName'] == senderName && data['message'] == message) {
+              await notifDoc.reference.delete();
+              deletedCount++;
+            }
+          }
+        }
+      }
+
+      // Decrease hospital request count
+      if (hospitalId != null && bloodGroup != null) {
+        final inventoryRef = FirebaseDatabase.instance
+            .ref('hospital_registrations/$hospitalId/bloodInventory/$bloodGroup');
+        final snapshot = await inventoryRef.get();
+        if (snapshot.exists) {
+          final data = snapshot.value as Map;
+          final currentCount = data['requestCount'] ?? 0;
+          if (currentCount > 0) {
+            await inventoryRef.update({
+              'requestCount': currentCount - deletedCount - 1,
+            });
+          }
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You accepted the donation request!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   String _getTimeAgo(DateTime dateTime) {

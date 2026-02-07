@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firstapp/service/register_hospital_statues_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:io';
 
 class HospitalEntryPage extends StatefulWidget {
@@ -22,6 +23,9 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
   bool _isSubmitting = false;
   File? _licenseFile;
   File? _certificateFile;
+  double? _latitude;
+  double? _longitude;
+  bool _isLoadingLocation = false;
 
   // Animation controllers for blobs
   late AnimationController _topRightController;
@@ -39,6 +43,7 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
   @override
   void initState() {
     super.initState();
+    _getCurrentLocation();
 
     // Top right large blob
     _topRightController = AnimationController(
@@ -94,6 +99,35 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
       end: const Offset(-12, -15),
     ).animate(CurvedAnimation(
         parent: _bottomRightController, curve: Curves.easeInOut));
+  }
+
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isLoadingLocation = true);
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() => _isLoadingLocation = false);
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() => _isLoadingLocation = false);
+          return;
+        }
+      }
+
+      Position position = await Geolocator.getCurrentPosition();
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+        _isLoadingLocation = false;
+      });
+    } catch (e) {
+      setState(() => _isLoadingLocation = false);
+    }
   }
 
   @override
@@ -419,6 +453,68 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                           ],
                         ),
 
+                        const SizedBox(height: 20),
+
+                        // Location Section
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: _latitude != null ? Colors.green.shade50 : Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _latitude != null ? Colors.green.shade200 : Colors.orange.shade200,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _latitude != null ? Icons.location_on : Icons.location_off,
+                                color: _latitude != null ? Colors.green.shade700 : Colors.orange.shade700,
+                                size: 28,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _latitude != null ? 'Location Captured' : 'Capturing Location...',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: _latitude != null ? Colors.green.shade900 : Colors.orange.shade900,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _latitude != null
+                                          ? 'Lat: ${_latitude!.toStringAsFixed(4)}, Lng: ${_longitude!.toStringAsFixed(4)}'
+                                          : 'Required for emergency notifications',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: _latitude != null ? Colors.green.shade800 : Colors.orange.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (_isLoadingLocation)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              else if (_latitude == null)
+                                IconButton(
+                                  onPressed: _getCurrentLocation,
+                                  icon: const Icon(Icons.refresh),
+                                  color: Colors.orange.shade700,
+                                ),
+                            ],
+                          ),
+                        ),
+
                         const SizedBox(height: 30),
 
                         // Required Documents Section
@@ -587,10 +683,23 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
     setState(() => _isSubmitting = true);
 
     try {
+      if (_latitude == null || _longitude == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please wait for location to be captured'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
       final success = await _hospitalService.submitHospitalRegistration(
         hospitalName: _hospitalNameController.text.trim(),
         hospitalAddress: _hospitalAddressController.text.trim(),
         contactNumber: _contactNumberController.text.trim(),
+        latitude: _latitude,
+        longitude: _longitude,
       );
 
       if (success && mounted) {

@@ -1,8 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class RegisterHospitalService {
-  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String? get currentUserId => _auth.currentUser?.uid;
@@ -26,9 +26,10 @@ class RegisterHospitalService {
         'userId': currentUserId,
         'userEmail': _auth.currentUser?.email ?? '',
         'status': 'approved',
+        'type': 'hospital',
         'licenseProofUrl': licenseProofUrl ?? '',
         'registrationCertificateUrl': registrationCertificateUrl ?? '',
-        'submittedAt': ServerValue.timestamp,
+        'submittedAt': FieldValue.serverTimestamp(),
       };
 
       if (latitude != null && longitude != null) {
@@ -36,8 +37,9 @@ class RegisterHospitalService {
         hospitalData['longitude'] = longitude;
       }
 
-      await _database
-          .ref('hospital_registrations/$currentUserId')
+      await _firestore
+          .collection('hospitals')
+          .doc(currentUserId)
           .set(hospitalData);
 
       return true;
