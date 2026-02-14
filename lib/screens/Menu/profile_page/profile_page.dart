@@ -329,7 +329,6 @@ class _ProfilePageState extends State<ProfilePage>
 
         if (mounted) {
           if (success) {
-            // Store the current state before updating
             final bool wasFirstTime = _isFirstTimeUser;
             
             setState(() {
@@ -462,113 +461,93 @@ class _ProfilePageState extends State<ProfilePage>
                                 ),
                               ),
 
-                            // Personal Information Card
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(24),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.shade200,
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
+                            // Personal Information Section
+                            const Text(
+                              'Personal Information',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Personal Information',
-                                    style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
-                                    ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // Full Name
+                            _buildTextField(
+                              label: 'Full Name',
+                              controller: _nameController,
+                              keyboardType: TextInputType.name,
+                              hint: 'Enter your full name',
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // Age
+                            _buildTextField(
+                              label: 'Age',
+                              controller: _ageController,
+                              keyboardType: TextInputType.number,
+                              hint: 'Enter your age',
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // Gender Dropdown
+                            _buildGenderDropdown(),
+
+                            const SizedBox(height: 20),
+
+                            // Blood Group Dropdown
+                            _buildBloodGroupDropdown(),
+
+                            const SizedBox(height: 20),
+
+                            // Phone Number
+                            _buildTextField(
+                              label: 'Phone Number',
+                              controller: _phoneController,
+                              keyboardType: TextInputType.phone,
+                              hint: 'Enter your phone number',
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // Location with buttons - NOW EDITABLE
+                            _buildLocationField(),
+
+                            const SizedBox(height: 30),
+
+                            // Save Changes Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _isSaving ? null : _saveChanges,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue.shade600,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  const SizedBox(height: 24),
-
-                                  // Full Name
-                                  _buildTextField(
-                                    label: 'Full Name',
-                                    controller: _nameController,
-                                    keyboardType: TextInputType.name,
-                                    hint: 'Enter your full name',
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  // Age
-                                  _buildTextField(
-                                    label: 'Age',
-                                    controller: _ageController,
-                                    keyboardType: TextInputType.number,
-                                    hint: 'Enter your age',
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  // Gender Dropdown
-                                  _buildGenderDropdown(),
-
-                                  const SizedBox(height: 20),
-
-                                  // Blood Group Dropdown
-                                  _buildBloodGroupDropdown(),
-
-                                  const SizedBox(height: 20),
-
-                                  // Phone Number
-                                  _buildTextField(
-                                    label: 'Phone Number',
-                                    controller: _phoneController,
-                                    keyboardType: TextInputType.phone,
-                                    hint: 'Enter your phone number',
-                                  ),
-
-                                  const SizedBox(height: 20),
-
-                                  // Location with buttons - NOW EDITABLE
-                                  _buildLocationField(),
-
-                                  const SizedBox(height: 30),
-
-                                  // Save Changes Button
-                                 // Save Changes Button
-SizedBox(
-  width: double.infinity,
-  child: ElevatedButton(
-    onPressed: _isSaving ? null : _saveChanges,
-    style: ElevatedButton.styleFrom(
-      backgroundColor: Colors.blue.shade600,
-      foregroundColor: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 2,
-    ),
-    child: _isSaving
-        ? const SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-            ),
-          )
-        : Text(
-            _isFirstTimeUser ? 'Create Profile' : 'Save Changes',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-  ),
-),
-                                ],
+                                  elevation: 2,
+                                ),
+                                child: _isSaving
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      )
+                                    : Text(
+                                        _isFirstTimeUser ? 'Create Profile' : 'Save Changes',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                               ),
                             ),
 

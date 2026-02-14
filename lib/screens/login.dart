@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../service/google_signin_service.dart';
+import '../service/authservice.dart';
 import 'signup.dart';
 import 'homepage/homepage.dart';
 
@@ -30,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen>
   late Animation<Offset> _bottomRightAnimation;
 
   final GoogleSignInService _googleSignInService = GoogleSignInService();
+  final AuthService _authService = AuthService();
   
   // Loading states
   bool _isLoading = false;
@@ -153,6 +155,64 @@ class _LoginScreenState extends State<LoginScreen>
       if (mounted) {
         setState(() {
           _isGoogleLoading = false;
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  // Email/Password Sign In
+  Future<void> _handleEmailPasswordSignIn() async {
+    if (_isLoading || _isProcessing) return;
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      _showErrorSnackBar('Please enter email and password');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _isProcessing = true;
+    });
+
+    try {
+      await _authService.signIn(email, password);
+      
+      if (!mounted) return;
+      
+      _showSuccessSnackBar('Login successful!');
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      if (!mounted) return;
+      
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      
+      String message;
+      if (e.code == 'user-not-found') {
+        message = 'No account found. Please create a new account.';
+      } else if (e.code == 'wrong-password') {
+        message = 'Incorrect password. Please try again.';
+      } else if (e.code == 'invalid-email') {
+        message = 'Invalid email address.';
+      } else {
+        message = 'Login failed. Please try again.';
+      }
+      _showErrorSnackBar(message);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('An error occurred. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
           _isProcessing = false;
         });
       }
@@ -359,7 +419,7 @@ class _LoginScreenState extends State<LoginScreen>
                           InkWell(
                             onTap: (_isLoading || _isProcessing) ? null : () {
                               FocusScope.of(context).unfocus();
-                               //_handleEmailPasswordSignIn();
+                              _handleEmailPasswordSignIn();
                             },
                             child: Container(
                               width: 60,
@@ -370,19 +430,11 @@ class _LoginScreenState extends State<LoginScreen>
                                     : Colors.grey.shade700,
                                 shape: BoxShape.circle,
                               ),
-                              child: _isLoading
-                                  ? const Padding(
-                                      padding: EdgeInsets.all(18.0),
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2.5,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.arrow_forward,
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
+                              child: const Icon(
+                                Icons.arrow_forward,
+                                color: Colors.white,
+                                size: 28,
+                              ),
                             ),
                           ),
                         ],
@@ -478,7 +530,7 @@ class _LoginScreenState extends State<LoginScreen>
                               icon: Icons.g_mobiledata,
                               label: 'Google',
                               color: Colors.red.shade400,
-                              isLoading: _isGoogleLoading,
+                              isLoading: false,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -501,13 +553,27 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ),
             
-            // Loading overlay (only show for email/password sign in)
-            if (_isLoading && !_isGoogleLoading && !_isFacebookLoading)
+            // Loading overlay (for email/password sign in and Google sign in)
+            if ((_isLoading || _isGoogleLoading) && !_isFacebookLoading)
               Container(
                 color: Colors.black.withOpacity(0.3),
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        _isLoading ? 'Signing in...' : 'Connecting...',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

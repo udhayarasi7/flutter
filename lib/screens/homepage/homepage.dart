@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:firstapp/service/google_signin_service.dart';
 import 'package:firstapp/screens/Menu/main_menu.dart';
 import 'package:firstapp/screens/Menu/donation_history_page.dart';
@@ -20,7 +23,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin, WidgetsBindingObserver {
   // Animation controllers for blobs
   late AnimationController _topRightController;
   late AnimationController _topRightSmallController;
@@ -59,9 +62,13 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   String? _hospitalType;
   bool _isLoadingHospital = true;
 
+  // Location update timer (every 3 minutes)
+  Timer? _locationUpdateTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeAnimations();
     _loadDonationStatus();
     _loadBloodGroup();
@@ -69,6 +76,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     _setUserPresence(true);
     _loadUnreadCount();
     _loadHospitalInfo();
+    _startLocationUpdateTimer();
   }
 
   Future<void> _loadUnreadCount() async {
@@ -298,6 +306,35 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return;
     }
 
+    // Check if phone location services are enabled when turning ON donation status
+    if (value) {
+      final isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!isLocationServiceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.location_off, color: Colors.white),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text('Please enable location services on your phone to enable donation status'),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     setState(() {
       isDonationAvailable = value;
     });
@@ -365,6 +402,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// Set user presence (online/offline)
   Future<void> _setUserPresence(bool isOnline) async {
     await _donationStatus.setUserPresence(isOnline);
+  }
+
+  /// Reload blood group when app resumes (e.g., after visiting profile page)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadBloodGroup();
+    }
   }
 
   @override
@@ -500,19 +545,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                   );
                                 },
                               ),
-                              const SizedBox(width: 15),
-                              // Home text
-                              const Text(
-                                'Home',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                  letterSpacing: 0.5,
+                              // Expanded to center the title
+                              Expanded(
+                                child: Center(
+                                  child: const Text(
+                                    'BloodZone',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                      letterSpacing: 0.7,
+                                    ),
+                                  ),
                                 ),
                               ),
-                              const Spacer(),
                               Stack(
                                 children: [
                                   InkWell(
@@ -627,7 +674,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                             userName,
                                             style: const TextStyle(
                                               color: Colors.black87,
-                                              fontSize: 28,
+                                              fontSize: 22,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
@@ -797,7 +844,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                   const Text(
                                                     'Donation Status',
                                                     style: TextStyle(
-                                                      color: Colors.white,
+                                                      color: Colors.black,
                                                       fontSize: 16,
                                                       fontWeight:
                                                           FontWeight.bold,
@@ -809,7 +856,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                                                         ? 'Active - Available for donation'
                                                         : 'Inactive - Not available',
                                                     style: const TextStyle(
-                                                      color: Colors.white70,
+                                                      color: Colors.black54,
                                                       fontSize: 12,
                                                     ),
                                                   ),
@@ -1609,8 +1656,89 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
+  /// Start periodic location update timer (every 3 minutes)
+  void _startLocationUpdateTimer() {
+    _locationUpdateTimer = Timer.periodic(
+      const Duration(minutes: 3),
+      (_) => _updateLocationInFirestore(),
+    );
+    // Also update location immediately on startup
+    _updateLocationInFirestore();
+  }
+
+  /// Update current location to Firestore
+  Future<void> _updateLocationInFirestore() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('Location services are disabled');
+        return;
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        print('Location permission not granted');
+        return;
+      }
+
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Get address from coordinates
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+
+        String locationAddress = 'Location';
+        if (placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          locationAddress =
+              '${place.street}, ${place.thoroughfare}, ${place.locality}, ${place.postalCode}, ${place.country}';
+        }
+
+        // Update Firestore with new location
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({
+          'location': locationAddress,
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'lastLocationUpdate': Timestamp.now(),
+        });
+
+        print('Location updated successfully at ${DateTime.now()}');
+      } catch (e) {
+        print('Error getting address: $e');
+        // Still update with coordinates if address fails
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'lastLocationUpdate': Timestamp.now(),
+        });
+      }
+    } catch (e) {
+      print('Error updating location in Firestore: $e');
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationUpdateTimer?.cancel(); // Cancel location update timer
     _setUserPresence(false); // Mark user as offline
     _topRightController.dispose();
     _topRightSmallController.dispose();

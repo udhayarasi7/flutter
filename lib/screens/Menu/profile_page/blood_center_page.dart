@@ -29,6 +29,19 @@ class _BloodCenterPageState extends State<BloodCenterPage>
   double? _longitude;
   bool _isLoadingLocation = false;
 
+  // Callbacks for file selection - stable references to prevent rebuild loops
+  void _onLicenseFilePicked(File? file) {
+    setState(() => _licenseFile = file);
+  }
+
+  void _onCertificateFilePicked(File? file) {
+    setState(() => _certificateFile = file);
+  }
+
+  void _onAccreditationFilePicked(File? file) {
+    setState(() => _accreditationFile = file);
+  }
+
   // Animation controllers for blobs
   late AnimationController _topRightController;
   late AnimationController _topRightSmallController;
@@ -104,6 +117,7 @@ class _BloodCenterPageState extends State<BloodCenterPage>
   }
 
   Future<void> _getCurrentLocation() async {
+    if (_isLoadingLocation) return; // Prevent multiple concurrent calls
     setState(() => _isLoadingLocation = true);
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -122,13 +136,17 @@ class _BloodCenterPageState extends State<BloodCenterPage>
       }
 
       Position position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _latitude = position.latitude;
-        _longitude = position.longitude;
-        _isLoadingLocation = false;
-      });
+      if (mounted) {
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _isLoadingLocation = false;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoadingLocation = false);
+      if (mounted) {
+        setState(() => _isLoadingLocation = false);
+      }
     }
   }
 
@@ -580,9 +598,7 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Blood Bank License', _licenseFile, (file) {
-                          setState(() => _licenseFile = file);
-                        }),
+                        _buildUploadBox('Blood Bank License', _licenseFile, _onLicenseFilePicked),
 
                         const SizedBox(height: 20),
 
@@ -596,9 +612,7 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Registration Certificate', _certificateFile, (file) {
-                          setState(() => _certificateFile = file);
-                        }),
+                        _buildUploadBox('Registration Certificate', _certificateFile, _onCertificateFilePicked),
 
                         const SizedBox(height: 20),
 
@@ -612,9 +626,7 @@ class _BloodCenterPageState extends State<BloodCenterPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildUploadBox('Accreditation Certificate', _accreditationFile, (file) {
-                          setState(() => _accreditationFile = file);
-                        }),
+                        _buildUploadBox('Accreditation Certificate', _accreditationFile, _onAccreditationFilePicked),
 
                         const SizedBox(height: 24),
 

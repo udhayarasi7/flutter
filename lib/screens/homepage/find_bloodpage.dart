@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -28,6 +30,7 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
   LatLng _currentCenter = LatLng(28.6139, 77.2090);
   bool _isLoadingLocation = false;
   bool _showSearch = false;
+  bool _showNotifySheet = false;
   final TextEditingController _searchController = TextEditingController();
   final List<String> _bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
   final List<String> _selectedBloodGroups = [];
@@ -36,13 +39,92 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
   List<Map<String, dynamic>> _matchedUsers = [];
   bool _isSearching = false;
   bool _isSendingNotification = false;
+  int _selectedDistance = 5; // Default to 5 KM
+  final List<int> _distanceOptions = [5, 10, 15, 20, 25, 30]; // Distance filter options
+  late Map<String, dynamic> _tempNotifyUser; // Temporary variable to store user being notified
   final NotificationService _notificationService = NotificationService();
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
-    _getCurrentLocation();
+    _requestLocationPermissionOnLoad();
+  }
+
+  /// Request location permission when page opens
+  Future<void> _requestLocationPermissionOnLoad() async {
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showLocationDialog(
+          'Location Services Disabled',
+          'Please enable location services to find blood donors near you.',
+          () => Geolocator.openLocationSettings(),
+        );
+        return;
+      }
+
+      // Check location permission
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _showLocationDialog(
+            'Location Permission Required',
+            'Location permission is needed to find blood donors near you.',
+            () => Navigator.pop(context),
+          );
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        _showLocationDialog(
+          'Location Permission Denied',
+          'Location permission is permanently denied. Please enable it in app settings.',
+          () => Geolocator.openAppSettings(),
+        );
+        return;
+      }
+
+      // Permission granted, get current location
+      _getCurrentLocation();
+    } catch (e) {
+      print('Error requesting location permission: $e');
+    }
+  }
+
+  /// Show location permission dialog
+  void _showLocationDialog(String title, String message, VoidCallback onPrimaryAction) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                onPrimaryAction();
+              },
+              child: const Text(
+                'Enable',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _searchUsers() async {
@@ -163,6 +245,13 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() => _isLoadingLocation = false);
+        if (mounted) {
+          _showLocationDialog(
+            'Location Services Disabled',
+            'Please enable location services to find blood donors near you.',
+            () => Geolocator.openLocationSettings(),
+          );
+        }
         return;
       }
 
@@ -176,14 +265,512 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
       }
 
       Position position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _currentCenter = LatLng(position.latitude, position.longitude);
-        _isLoadingLocation = false;
-      });
-      _mapController.move(_currentCenter, 15.0);
+      if (mounted) {
+        setState(() {
+          _currentCenter = LatLng(position.latitude, position.longitude);
+          _isLoadingLocation = false;
+        });
+        _mapController.move(_currentCenter, 15.0);
+        
+        // Start live location tracking
+        _startLiveLocationTracking();
+      }
     } catch (e) {
       setState(() => _isLoadingLocation = false);
+      print('Error getting location: $e');
     }
+  }
+
+  /// Start tracking location changes in real-time
+  void _startLiveLocationTracking() {
+    // Cancel existing stream if any
+    _positionStream?.cancel();
+    
+    // Listen to location changes every 5 seconds
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // Update when user moves 10 meters
+        timeLimit: Duration(seconds: 5),
+      ),
+    ).listen((Position position) {
+      if (mounted) {
+        setState(() {
+          _currentCenter = LatLng(position.latitude, position.longitude);
+        });
+        // Move map smoothly to new location
+        _mapController.move(_currentCenter, _mapController.camera.zoom);
+      }
+    }, onError: (e) {
+      print('Error tracking location: $e');
+    });
+  }
+
+  /// Center map to current location with loading indicator
+  Future<void> _centerMapToCurrentLocation() async {
+    setState(() => _isLoadingLocation = true);
+    
+    try {
+      // Get fresh location first
+      Position position = await Geolocator.getCurrentPosition();
+      
+      if (mounted) {
+        setState(() {
+          _currentCenter = LatLng(position.latitude, position.longitude);
+        });
+        
+        // Move map to current location with zoom
+        _mapController.move(_currentCenter, 17.0); // Zoom in to 17 to see user location clearly
+        
+        // Hide loading only after location is found and map moved
+        setState(() => _isLoadingLocation = false);
+      }
+    } catch (e) {
+      setState(() => _isLoadingLocation = false);
+      print('Error centering map: $e');
+    }
+  }
+
+  /// Calculate distance between two coordinates in kilometers
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371; // Radius of Earth in km
+    final double dLat = (lat2 - lat1) * 3.14159 / 180;
+    final double dLon = (lon2 - lon1) * 3.14159 / 180;
+    final double a = (sin(dLat / 2) * sin(dLat / 2)) +
+        cos(lat1 * 3.14159 / 180) * cos(lat2 * 3.14159 / 180) * (sin(dLon / 2) * sin(dLon / 2));
+    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  /// Send notification to individual user
+  void _showNotifyConfirmDialog(String personName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Send Notification?',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        content: Text(
+          'Send notification to $personName?',
+          style: const TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _sendNotificationToUser(_tempNotifyUser);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal.shade700,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNotifyAllConfirmDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        title: const Text(
+          'Send Notifications?',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        content: Text(
+          'Send notification to all ${_matchedUsers.length} users?',
+          style: const TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _sendNotifications();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal.shade700,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendNotificationToUser(Map<String, dynamic> user) async {
+    setState(() => _isSendingNotification = true);
+
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not logged in');
+      }
+
+      final currentUserDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+
+      if (!currentUserDoc.exists) {
+        throw Exception('User data not found');
+      }
+
+      final senderName = currentUserDoc.data()?['name'] ?? 'Someone';
+      final bloodGroup = user['bloodGroup'] ?? 'blood';
+
+      final notification = {
+        'message': '$senderName needs your $bloodGroup blood group',
+        'senderName': senderName,
+        'recipientBloodGroup': bloodGroup,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+      };
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user['id'])
+          .collection('notifications')
+          .add(notification);
+
+      setState(() => _isSendingNotification = false);
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Text(
+              'Notification Sent!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.green,
+              ),
+            ),
+            content: Text(
+              'Notification sent to ${user['name']}',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isSendingNotification = false);
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Text(
+              'Error',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.red,
+              ),
+            ),
+            content: Text(
+              'Failed to send notification: $e',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  /// Show bottom sheet with available donors
+  void _showNotifyBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.5,
+          maxChildSize: 0.9,
+          minChildSize: 0.3,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Handle bar
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Notify All button
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _showNotifyAllConfirmDialog,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Notify All',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  // Donors list
+                  Expanded(
+                    child: Builder(
+                      builder: (context) {
+                        // Filter users by selected distance
+                        final filteredUsers = _matchedUsers.where((user) {
+                          final userLat = user['latitude'] is double 
+                            ? user['latitude'] as double 
+                            : (user['latitude'] as num?)?.toDouble() ?? 0.0;
+                          final userLon = user['longitude'] is double 
+                            ? user['longitude'] as double 
+                            : (user['longitude'] as num?)?.toDouble() ?? 0.0;
+                          
+                          final distance = _calculateDistance(
+                            _currentCenter.latitude,
+                            _currentCenter.longitude,
+                            userLat,
+                            userLon,
+                          );
+                          
+                          return distance <= _selectedDistance;
+                        }).toList();
+
+                        if (filteredUsers.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'No donors found within ${_selectedDistance}km',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.builder(
+                          controller: scrollController,
+                          itemCount: filteredUsers.length,
+                          itemBuilder: (context, index) {
+                            final user = filteredUsers[index];
+                            
+                            // Ensure coordinates are doubles
+                            final userLat = user['latitude'] is double 
+                              ? user['latitude'] as double 
+                              : (user['latitude'] as num?)?.toDouble() ?? 0.0;
+                            final userLon = user['longitude'] is double 
+                              ? user['longitude'] as double 
+                              : (user['longitude'] as num?)?.toDouble() ?? 0.0;
+                            
+                            final distance = _calculateDistance(
+                              _currentCenter.latitude,
+                              _currentCenter.longitude,
+                              userLat,
+                              userLon,
+                            );
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.grey.shade300,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                // Donor name
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    user['name'] ?? 'Unknown',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                // Distance with styled pill
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.teal.shade50,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: Colors.teal.shade300,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${distance.toStringAsFixed(1)} KM',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.teal.shade700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Notify button
+                                ElevatedButton(
+                                  onPressed: () {
+                                    _tempNotifyUser = user;
+                                    _showNotifyConfirmDialog(user['name'] ?? 'User');
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.teal.shade700,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'Notify',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _sendNotifications() async {
@@ -216,7 +803,25 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
 
       final senderName = currentUserDoc.data()?['name'] ?? 'Someone';
 
+      // Filter users by selected distance
       for (var user in _matchedUsers) {
+        final userLat = user['latitude'] is double 
+          ? user['latitude'] as double 
+          : (user['latitude'] as num?)?.toDouble() ?? 0.0;
+        final userLon = user['longitude'] is double 
+          ? user['longitude'] as double 
+          : (user['longitude'] as num?)?.toDouble() ?? 0.0;
+        
+        final distance = _calculateDistance(
+          _currentCenter.latitude,
+          _currentCenter.longitude,
+          userLat,
+          userLon,
+        );
+
+        // Only notify if within selected distance
+        if (distance > _selectedDistance) continue;
+
         final recipientBloodGroup = user['bloodGroup'];
         final notification = {
           'message': '$senderName wants your $recipientBloodGroup blood group',
@@ -244,20 +849,85 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
       setState(() => _isSendingNotification = false);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Notifications sent to ${_matchedUsers.length} user(s)!'),
-            backgroundColor: Colors.green,
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Text(
+              'Notifications Sent!',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.green,
+              ),
+            ),
+            content: Text(
+              'Notifications sent to all users within ${_selectedDistance}km',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pop(context); // Close notify sheet too
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
           ),
         );
       }
     } catch (e) {
       setState(() => _isSendingNotification = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sending notifications: $e'),
-            backgroundColor: Colors.red,
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            title: const Text(
+              'Error',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.red,
+              ),
+            ),
+            content: Text(
+              'Failed to send notifications: $e',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal.shade700,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'OK',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
           ),
         );
       }
@@ -497,6 +1167,50 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                                         ),
                                       ],
                                     ),
+                                    const SizedBox(height: 16),
+                                    const Text(
+                                      'Distance Range',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        children: _distanceOptions.map((distance) {
+                                          final isSelected = _selectedDistance == distance;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(right: 8),
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                setState(() => _selectedDistance = distance);
+                                              },
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: isSelected ? Colors.teal.shade700 : Colors.grey.shade200,
+                                                  borderRadius: BorderRadius.circular(16),
+                                                  border: isSelected
+                                                      ? Border.all(color: Colors.teal.shade900, width: 2)
+                                                      : null,
+                                                ),
+                                                child: Text(
+                                                  '${distance}km',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isSelected ? Colors.white : Colors.grey.shade700,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ),
                                     const SizedBox(height: 12),
                                     SizedBox(
                                       width: double.infinity,
@@ -590,11 +1304,8 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                               initialCenter: _currentCenter,
                               initialZoom: 13.0,
                               onPositionChanged: (position, hasGesture) {
-                                if (hasGesture) {
-                                  setState(() {
-                                    _currentCenter = position.center!;
-                                  });
-                                }
+                                // Don't update _currentCenter on user drag
+                                // Let user freely drag the map
                               },
                             ),
                             children: [
@@ -604,16 +1315,6 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                               ),
                               MarkerLayer(
                                 markers: [
-                                  Marker(
-                                    point: _currentCenter,
-                                    width: 40,
-                                    height: 40,
-                                    child: Icon(
-                                      Icons.location_on,
-                                      color: Colors.red.shade600,
-                                      size: 40,
-                                    ),
-                                  ),
                                   ..._matchedUsers.map((user) => Marker(
                                     point: LatLng(user['latitude'], user['longitude']),
                                     width: 80,
@@ -648,67 +1349,99 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                                       ],
                                     ),
                                   )),
+                                  // Current user location marker (on top/front)
+                                  Marker(
+                                    point: _currentCenter,
+                                    width: 80,
+                                    height: 80,
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.location_on,
+                                          color: Colors.red.shade900,
+                                          size: 40,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.shade900,
+                                            borderRadius: BorderRadius.circular(6),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.3),
+                                                blurRadius: 4,
+                                              ),
+                                            ],
+                                          ),
+                                          child: const Text(
+                                            'You',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
                           ),
-                          Positioned(
-                            bottom: 20,
-                            left: 20,
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(15),
-                              child: BackdropFilter(
-                                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.teal.shade50.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(15),
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.4),
-                                      width: 1.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: _isSendingNotification ? null : _sendNotifications,
+                          // Notify button - only show when blood donors are found
+                          if (_matchedUsers.isNotEmpty && _showDonors)
+                            Positioned(
+                              bottom: 20,
+                              left: 20,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(15),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.teal.shade50.withOpacity(0.9),
                                       borderRadius: BorderRadius.circular(15),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            _isSendingNotification
-                                                ? SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: Colors.teal.shade700,
-                                                    ),
-                                                  )
-                                                : Icon(
-                                                    Icons.notifications_outlined,
-                                                    color: Colors.teal.shade700,
-                                                    size: 20,
-                                                  ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Notify',
-                                              style: TextStyle(
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.4),
+                                        width: 1.5,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.1),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () => _showNotifyBottomSheet(),
+                                        borderRadius: BorderRadius.circular(15),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.notifications_outlined,
                                                 color: Colors.teal.shade700,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w600,
+                                                size: 20,
                                               ),
-                                            ),
-                                          ],
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'Notify',
+                                                style: TextStyle(
+                                                  color: Colors.teal.shade700,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -716,7 +1449,6 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                                 ),
                               ),
                             ),
-                          ),
                           Positioned(
                             bottom: 110,
                             right: 20,
@@ -743,24 +1475,15 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                                   child: Material(
                                     color: Colors.transparent,
                                     child: InkWell(
-                                      onTap: _isLoadingLocation ? null : _getCurrentLocation,
+                                      onTap: _centerMapToCurrentLocation,
                                       borderRadius: BorderRadius.circular(15),
                                       child: Padding(
                                         padding: const EdgeInsets.all(12),
-                                        child: _isLoadingLocation
-                                            ? SizedBox(
-                                                width: 24,
-                                                height: 24,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: Colors.teal.shade700,
-                                                ),
-                                              )
-                                            : Icon(
-                                                Icons.my_location_rounded,
-                                                color: Colors.teal.shade700,
-                                                size: 24,
-                                              ),
+                                        child: Icon(
+                                          Icons.my_location_rounded,
+                                          color: Colors.teal.shade700,
+                                          size: 24,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -768,6 +1491,31 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
                               ),
                             ),
                           ),
+                          // Loading text overlay - shows when searching for user location
+                          if (_isLoadingLocation)
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.shade700,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.3),
+                                      blurRadius: 8,
+                                    ),
+                                  ],
+                                ),
+                                child: const Text(
+                                  'Finding your location...',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
                           Positioned(
                             bottom: 20,
                             right: 20,
@@ -898,6 +1646,7 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
     _topRightController.dispose();
     _bottomLeftController.dispose();
     _bottomRightController.dispose();
+    _positionStream?.cancel();
     super.dispose();
   }
 }

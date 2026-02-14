@@ -315,142 +315,31 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
                         const SizedBox(height: 20),
 
                         // Hospital Name field
-                        const Text(
-                          'Hospital Name *',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
+                        _buildTextField(
+                          label: 'Hospital Name *',
                           controller: _hospitalNameController,
-                          decoration: InputDecoration(
-                            hintText: 'City General Hospital',
-                            hintStyle: TextStyle(color: Colors.grey.shade400),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
+                          keyboardType: TextInputType.text,
+                          hint: 'City General Hospital',
                         ),
 
                         const SizedBox(height: 20),
 
                         // Hospital Address field
-                        const Text(
-                          'Hospital Address *',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
+                        _buildTextField(
+                          label: 'Hospital Address *',
                           controller: _hospitalAddressController,
-                          maxLines: 3,
-                          decoration: InputDecoration(
-                            hintText: '123 Medical Center Drive, New York, NY 10001',
-                            hintStyle: TextStyle(color: Colors.grey.shade400),
-                            filled: true,
-                            fillColor: Colors.grey.shade50,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.grey.shade300),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
+                          keyboardType: TextInputType.text,
+                          hint: '123 Medical Center Drive, New York, NY 10001',
                         ),
 
                         const SizedBox(height: 20),
 
                         // Contact Number field
-                        const Text(
-                          'Contact Number *',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: const Text(
-                                '+ 91',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: _contactNumberController,
-                                keyboardType: TextInputType.phone,
-                                decoration: InputDecoration(
-                                  hintText: '9876543210',
-                                  hintStyle: TextStyle(color: Colors.grey.shade400),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(color: Colors.grey.shade300),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(color: Colors.grey.shade300),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+                        _buildTextField(
+                          label: 'Contact Number *',
+                          controller: _contactNumberController,
+                          keyboardType: TextInputType.phone,
+                          hint: '9876543210',
                         ),
 
                         const SizedBox(height: 20),
@@ -664,6 +553,63 @@ class _HospitalEntryPageState extends State<HospitalEntryPage>
         color: color.withOpacity(0.6),
         shape: BoxShape.circle,
       ),
+    );
+  }
+
+  Widget _buildTextField({
+    required String label,
+    required TextEditingController controller,
+    required TextInputType keyboardType,
+    required String hint,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade600,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          keyboardType: keyboardType,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: Colors.grey.shade400,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+          ),
+        ),
+      ],
     );
   }
 

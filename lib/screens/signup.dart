@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firstapp/screens/homepage/homepage.dart';
 import 'package:firstapp/service/google_signin_service.dart';
+import 'package:firstapp/service/authservice.dart';
 import 'package:flutter/material.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -16,7 +17,6 @@ class _SignupScreenState extends State<SignupScreen>
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // Animation controllers for blobs
   late AnimationController _topRightController;
   late AnimationController _topRightSmallController;
   late AnimationController _bottomLeftController;
@@ -30,8 +30,8 @@ class _SignupScreenState extends State<SignupScreen>
   late Animation<Offset> _bottomRightAnimation;
 
   final GoogleSignInService _googleSignInService = GoogleSignInService();
+  final AuthService _authService = AuthService();
   
-  // Loading states
   bool _isLoading = false;
   bool _isProcessing = false;
   bool _isGoogleLoading = false;
@@ -41,7 +41,6 @@ class _SignupScreenState extends State<SignupScreen>
   void initState() {
     super.initState();
     
-    // Top right large blob
     _topRightController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
@@ -51,7 +50,6 @@ class _SignupScreenState extends State<SignupScreen>
       end: const Offset(-15, 10),
     ).animate(CurvedAnimation(parent: _topRightController, curve: Curves.easeInOut));
     
-    // Top right small blob
     _topRightSmallController = AnimationController(
       duration: const Duration(seconds: 3),
       vsync: this,
@@ -61,7 +59,6 @@ class _SignupScreenState extends State<SignupScreen>
       end: const Offset(10, -15),
     ).animate(CurvedAnimation(parent: _topRightSmallController, curve: Curves.easeInOut));
     
-    // Bottom left large blob
     _bottomLeftController = AnimationController(
       duration: const Duration(seconds: 3, milliseconds: 500),
       vsync: this,
@@ -71,7 +68,6 @@ class _SignupScreenState extends State<SignupScreen>
       end: const Offset(12, -18),
     ).animate(CurvedAnimation(parent: _bottomLeftController, curve: Curves.easeInOut));
     
-    // Bottom left small blob
     _bottomLeftSmallController = AnimationController(
       duration: const Duration(seconds: 4),
       vsync: this,
@@ -81,7 +77,6 @@ class _SignupScreenState extends State<SignupScreen>
       end: const Offset(-8, 12),
     ).animate(CurvedAnimation(parent: _bottomLeftSmallController, curve: Curves.easeInOut));
     
-    // Bottom right blob
     _bottomRightController = AnimationController(
       duration: const Duration(seconds: 3, milliseconds: 200),
       vsync: this,
@@ -92,13 +87,75 @@ class _SignupScreenState extends State<SignupScreen>
     ).animate(CurvedAnimation(parent: _bottomRightController, curve: Curves.easeInOut));
   }
 
-  // Google Sign In
-  Future<void> _handleGoogleSignIn() async {
-    // Prevent multiple simultaneous sign-in attempts
-    if (_isGoogleLoading || _isProcessing) {
-      print('⚠️ Google sign-in already in progress');
+  Future<void> _handleEmailPasswordSignUp() async {
+    if (_isLoading || _isProcessing) return;
+
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      _showErrorSnackBar('Please fill all fields');
       return;
     }
+
+    if (password.length < 6) {
+      _showErrorSnackBar('Password must be at least 6 characters');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _isProcessing = true;
+    });
+
+    try {
+      final userCredential = await _authService.signUp(email, password);
+      
+      if (userCredential.user != null) {
+        await userCredential.user!.updateDisplayName(name);
+      }
+      
+      if (!mounted) return;
+      
+      _showSuccessSnackBar('Account created successfully!');
+      await Future.delayed(const Duration(milliseconds: 200));
+      
+      if (!mounted) return;
+      
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      
+      String message;
+      if (e.code == 'email-already-in-use') {
+        message = 'Email already in use. Please login instead.';
+      } else if (e.code == 'invalid-email') {
+        message = 'Invalid email address.';
+      } else if (e.code == 'weak-password') {
+        message = 'Password is too weak.';
+      } else {
+        message = 'Sign up failed. Please try again.';
+      }
+      _showErrorSnackBar(message);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('An error occurred. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    if (_isGoogleLoading || _isProcessing) return;
 
     setState(() {
       _isGoogleLoading = true;
@@ -106,15 +163,11 @@ class _SignupScreenState extends State<SignupScreen>
     });
 
     try {
-      print('🔵 Starting Google sign-in...');
-      
       final UserCredential? userCredential = await _googleSignInService.signInWithGoogle();
 
       if (!mounted) return;
 
-      // User cancelled the sign-in
       if (userCredential == null) {
-        print('🔵 User cancelled Google sign-in');
         if (mounted) {
           setState(() {
             _isGoogleLoading = false;
@@ -125,15 +178,12 @@ class _SignupScreenState extends State<SignupScreen>
       }
 
       if (userCredential.user != null) {
-        print('🔵 ✅ Google sign-in successful!');
         _showSuccessSnackBar('Welcome ${userCredential.user!.displayName ?? "User"}!');
         
-        // Small delay to show success message
         await Future.delayed(const Duration(milliseconds: 200));
         
         if (!mounted) return;
         
-        // Navigate to HomePage
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const HomePage()),
@@ -142,13 +192,11 @@ class _SignupScreenState extends State<SignupScreen>
     } on Exception catch (e) {
       if (!mounted) return;
       
-      // Extract error message from exception
       String errorMessage = e.toString().replaceAll('Exception: ', '');
       _showErrorSnackBar(errorMessage);
     } catch (e) {
       if (!mounted) return;
       _showErrorSnackBar('Google sign-in failed. Please try again.');
-      print('🔵 ❌ Error: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -159,7 +207,6 @@ class _SignupScreenState extends State<SignupScreen>
     }
   }
 
-  // Facebook Sign In (placeholder)
   Future<void> _handleFacebookSignIn() async {
     setState(() {
       _isFacebookLoading = true;
@@ -197,8 +244,6 @@ class _SignupScreenState extends State<SignupScreen>
     );
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -210,7 +255,6 @@ class _SignupScreenState extends State<SignupScreen>
         resizeToAvoidBottomInset: true,
         body: Stack(
           children: [
-            // Animated top right large blob
             AnimatedBuilder(
               animation: _topRightAnimation,
               builder: (context, child) {
@@ -222,7 +266,6 @@ class _SignupScreenState extends State<SignupScreen>
               },
             ),
             
-            // Animated top right small blob
             AnimatedBuilder(
               animation: _topRightSmallAnimation,
               builder: (context, child) {
@@ -234,7 +277,6 @@ class _SignupScreenState extends State<SignupScreen>
               },
             ),
             
-            // Animated bottom left large blob
             AnimatedBuilder(
               animation: _bottomLeftAnimation,
               builder: (context, child) {
@@ -246,7 +288,6 @@ class _SignupScreenState extends State<SignupScreen>
               },
             ),
             
-            // Animated bottom left small blob
             AnimatedBuilder(
               animation: _bottomLeftSmallAnimation,
               builder: (context, child) {
@@ -258,7 +299,6 @@ class _SignupScreenState extends State<SignupScreen>
               },
             ),
             
-            // Animated bottom right blob
             AnimatedBuilder(
               animation: _bottomRightAnimation,
               builder: (context, child) {
@@ -270,7 +310,6 @@ class _SignupScreenState extends State<SignupScreen>
               },
             ),
             
-            // Main content - Wrapped in SingleChildScrollView
             SafeArea(
               child: SingleChildScrollView(
                 child: Padding(
@@ -280,7 +319,6 @@ class _SignupScreenState extends State<SignupScreen>
                     children: [
                       const SizedBox(height: 40),
                       
-                      // Back button with title
                       InkWell(
                         onTap: () => Navigator.pop(context),
                         child: Row(
@@ -302,9 +340,9 @@ class _SignupScreenState extends State<SignupScreen>
                       
                       const SizedBox(height: 80),
                       
-                      // Name field
                       TextField(
                         controller: _nameController,
+                        enabled: !_isLoading && !_isProcessing,
                         decoration: InputDecoration(
                           hintText: 'Name',
                           hintStyle: TextStyle(color: Colors.grey.shade400),
@@ -314,15 +352,18 @@ class _SignupScreenState extends State<SignupScreen>
                           focusedBorder: UnderlineInputBorder(
                             borderSide: BorderSide(color: Colors.blue.shade400),
                           ),
+                          disabledBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
                         ),
                       ),
                       
                       const SizedBox(height: 30),
                       
-                      // Email field
                       TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        enabled: !_isLoading && !_isProcessing,
                         decoration: InputDecoration(
                           hintText: 'Email',
                           hintStyle: TextStyle(color: Colors.grey.shade400),
@@ -332,15 +373,18 @@ class _SignupScreenState extends State<SignupScreen>
                           focusedBorder: UnderlineInputBorder(
                             borderSide: BorderSide(color: Colors.blue.shade400),
                           ),
+                          disabledBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
                         ),
                       ),
                       
                       const SizedBox(height: 30),
                       
-                      // Password field
                       TextField(
                         controller: _passwordController,
                         obscureText: true,
+                        enabled: !_isLoading && !_isProcessing,
                         decoration: InputDecoration(
                           hintText: 'Password',
                           hintStyle: TextStyle(color: Colors.grey.shade400),
@@ -350,12 +394,14 @@ class _SignupScreenState extends State<SignupScreen>
                           focusedBorder: UnderlineInputBorder(
                             borderSide: BorderSide(color: Colors.blue.shade400),
                           ),
+                          disabledBorder: UnderlineInputBorder(
+                            borderSide: BorderSide(color: Colors.grey.shade200),
+                          ),
                         ),
                       ),
                       
                       const SizedBox(height: 60),
                       
-                      // Sign up button with arrow
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -368,15 +414,17 @@ class _SignupScreenState extends State<SignupScreen>
                             ),
                           ),
                           InkWell(
-                            onTap: () {
+                            onTap: (_isLoading || _isProcessing) ? null : () {
                               FocusScope.of(context).unfocus();
-                              // Handle sign up logic here
+                              _handleEmailPasswordSignUp();
                             },
                             child: Container(
                               width: 60,
                               height: 60,
                               decoration: BoxDecoration(
-                                color: Colors.grey.shade700,
+                                color: (_isLoading || _isProcessing) 
+                                    ? Colors.grey.shade400 
+                                    : Colors.grey.shade700,
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -391,9 +439,8 @@ class _SignupScreenState extends State<SignupScreen>
                       
                       const SizedBox(height: 40),
                       
-                      // Sign in link
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: (_isLoading || _isProcessing) ? null : () => Navigator.pop(context),
                         style: TextButton.styleFrom(
                           padding: EdgeInsets.zero,
                           minimumSize: Size.zero,
@@ -410,7 +457,7 @@ class _SignupScreenState extends State<SignupScreen>
                       ),
                       
                       const SizedBox(height: 30),
-                      // Or continue with text
+                      
                       Row(
                         children: [
                           Expanded(
@@ -440,28 +487,25 @@ class _SignupScreenState extends State<SignupScreen>
                       
                       const SizedBox(height: 30),
                       
-                      // Social authentication buttons
                       Row(
                         children: [
                           Expanded(
                             child: _buildSocialButton(
-                              onTap: () {
-                                print('Google sign up');
-                              },
+                              onTap: _isProcessing ? () {} : _handleGoogleSignIn,
                               icon: Icons.g_mobiledata,
                               label: 'Google',
                               color: Colors.red.shade400,
+                              isLoading: false,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: _buildSocialButton(
-                              onTap: () {
-                                print('Facebook sign up');
-                              },
+                              onTap: _isProcessing ? () {} : _handleFacebookSignIn,
                               icon: Icons.facebook,
                               label: 'Facebook',
                               color: Colors.blue.shade700,
+                              isLoading: _isFacebookLoading,
                             ),
                           ),
                         ],
@@ -473,6 +517,30 @@ class _SignupScreenState extends State<SignupScreen>
                 ),
               ),
             ),
+            
+            if ((_isLoading || _isGoogleLoading) && !_isFacebookLoading)
+              Container(
+                color: Colors.black.withOpacity(0.3),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        _isLoading ? 'Signing up...' : 'Connecting...',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -495,9 +563,10 @@ class _SignupScreenState extends State<SignupScreen>
     required IconData icon,
     required String label,
     required Color color,
+    bool isLoading = false,
   }) {
     return InkWell(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -517,11 +586,21 @@ class _SignupScreenState extends State<SignupScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: color,
-              size: 26,
-            ),
+            if (isLoading)
+              SizedBox(
+                height: 26,
+                width: 26,
+                child: CircularProgressIndicator(
+                  color: color,
+                  strokeWidth: 2.5,
+                ),
+              )
+            else
+              Icon(
+                icon,
+                color: color,
+                size: 26,
+              ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
