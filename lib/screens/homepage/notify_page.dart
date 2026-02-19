@@ -25,6 +25,8 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _initializeAnimations();
+    // Mark all notifications as read when page opens
+    _notifyService.markAllAsRead();
   }
 
   void _initializeAnimations() {
@@ -167,6 +169,15 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                           final timeAgo = timestamp != null
                               ? _getTimeAgo(timestamp.toDate())
                               : 'Just now';
+                          
+                          // Get the other user ID (sender or hospital)
+                          final otherUserId = notification['senderId'] ?? notification['hospitalId'] ?? '';
+                          
+                          // Get unread message count
+                          late Stream<int> unreadMessageCount;
+                          if (isAccepted && acceptedBy == FirebaseAuth.instance.currentUser?.uid) {
+                            unreadMessageCount = _getUnreadMessageCount(otherUserId);
+                          }
 
                           return Dismissible(
                             key: Key(notification['id']),
@@ -196,9 +207,7 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                             },
                             child: InkWell(
                               onTap: () {
-                                if (!isRead) {
-                                  _notifyService.markAsRead(notification['id']);
-                                }
+                                // All notifications are already marked as read in initState
                               },
                               borderRadius: BorderRadius.circular(15),
                               child: Container(
@@ -309,6 +318,79 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
                                                     ),
                                                   ),
                                                   child: const Text('Donate', style: TextStyle(fontSize: 13)),
+                                                )
+                                              else if (acceptedBy == FirebaseAuth.instance.currentUser?.uid)
+                                                // Show message icon if current user accepted
+                                                Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.green.shade100,
+                                                        borderRadius: BorderRadius.circular(8),
+                                                      ),
+                                                      child: Text(
+                                                        'Accepted',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors.green.shade700,
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    InkWell(
+                                                      onTap: () => _openMessaging(
+                                                        otherUserId,
+                                                        notification['senderName'] ?? 'User',
+                                                      ),
+                                                      child: Stack(
+                                                        children: [
+                                                          Container(
+                                                            padding: const EdgeInsets.all(8),
+                                                            decoration: BoxDecoration(
+                                                              color: Colors.blue.shade100,
+                                                              shape: BoxShape.circle,
+                                                            ),
+                                                            child: Icon(
+                                                              Icons.message,
+                                                              color: Colors.blue.shade700,
+                                                              size: 20,
+                                                            ),
+                                                          ),
+                                                          // Unread message badge
+                                                          StreamBuilder<int>(
+                                                            stream: unreadMessageCount,
+                                                            builder: (context, snapshot) {
+                                                              final count = snapshot.data ?? 0;
+                                                              if (count == 0) return const SizedBox();
+                                                              
+                                                              return Positioned(
+                                                                right: 0,
+                                                                top: 0,
+                                                                child: Container(
+                                                                  padding: const EdgeInsets.all(2),
+                                                                  decoration: BoxDecoration(
+                                                                    color: Colors.red.shade600,
+                                                                    shape: BoxShape.circle,
+                                                                  ),
+                                                                  child: Text(
+                                                                    count > 9 ? '9+' : count.toString(),
+                                                                    style: const TextStyle(
+                                                                      color: Colors.white,
+                                                                      fontSize: 10,
+                                                                      fontWeight: FontWeight.bold,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            },
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
                                                 )
                                               else
                                                 Container(
@@ -437,6 +519,211 @@ class _NotifyPageState extends State<NotifyPage> with TickerProviderStateMixin {
     } else {
       return 'Just now';
     }
+  }
+
+  void _openMessaging(String hospitalId, String hospitalName) {
+    _showMessagingDialog(hospitalId, hospitalName);
+  }
+
+  Stream<int> _getUnreadMessageCount(String hospitalId) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return Stream.value(0);
+    
+    final conversationId = _generateConversationId(currentUserId, hospitalId);
+    
+    return FirebaseFirestore.instance
+        .collection('messages')
+        .doc(conversationId)
+        .collection('chats')
+        .where('senderId', isNotEqualTo: currentUserId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
+
+  String _generateConversationId(String userId1, String userId2) {
+    return userId1.compareTo(userId2) < 0 ? '$userId1-$userId2' : '$userId2-$userId1';
+  }
+
+  void _showMessagingDialog(String userId, String userName) {
+    final TextEditingController messageController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header with user profile
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.teal.shade50,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+                border: Border(
+                  bottom: BorderSide(
+                    color: Colors.grey.shade200,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade600,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          userName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Request Accepted',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => Navigator.pop(context),
+                    child: Icon(
+                      Icons.close,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Messages area
+            Container(
+              height: 300,
+              padding: const EdgeInsets.all(16),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _notifyService.getMessages(userId),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final messages = snapshot.data ?? [];
+                  return ListView.builder(
+                    reverse: true,
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      final isCurrentUser = message['senderId'] == FirebaseAuth.instance.currentUser?.uid;
+                      
+                      return Align(
+                        alignment: isCurrentUser ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isCurrentUser ? Colors.teal.shade600 : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            message['message'] ?? '',
+                            style: TextStyle(
+                              color: isCurrentUser ? Colors.white : Colors.black87,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            
+            // Message input
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.grey.shade200,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: messageController,
+                      decoration: InputDecoration(
+                        hintText: 'Type your message...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade300,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(
+                            color: Colors.grey.shade300,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () {
+                      if (messageController.text.trim().isNotEmpty) {
+                        _notifyService.sendMessage(userId, messageController.text.trim());
+                        messageController.clear();
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.shade600,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.send,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildBlob(double size, Color color) {

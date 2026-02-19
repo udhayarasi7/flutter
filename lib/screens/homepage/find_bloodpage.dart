@@ -152,6 +152,10 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
 
     try {
       List<Map<String, dynamic>> matched = [];
+      
+      // Get current user ID
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUserId = currentUser?.uid;
 
       // Search for Blood Donors
       if (_showDonors) {
@@ -159,6 +163,11 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
         final donorsRef = FirebaseDatabase.instance.ref('donors');
 
         for (var doc in usersSnapshot.docs) {
+          // Skip current user - don't show their own data on map
+          if (doc.id == currentUserId) {
+            continue;
+          }
+          
           final data = doc.data();
           final bloodGroup = data['bloodGroup'];
           final latitude = data['latitude'];
@@ -311,7 +320,37 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
     setState(() => _isLoadingLocation = true);
     
     try {
-      // Get fresh location first
+      // Check location permission first
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() => _isLoadingLocation = false);
+          if (mounted) {
+            _showLocationDialog(
+              'Location Permission Required',
+              'Location permission is needed to find blood donors near you.',
+              () => Navigator.pop(context),
+            );
+          }
+          return;
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        setState(() => _isLoadingLocation = false);
+        if (mounted) {
+          _showLocationDialog(
+            'Location Permission Denied',
+            'Location permission is permanently denied. Please enable it in app settings.',
+            () => Geolocator.openAppSettings(),
+          );
+        }
+        return;
+      }
+
+      // Permission granted, get fresh location
       Position position = await Geolocator.getCurrentPosition();
       
       if (mounted) {
@@ -328,6 +367,14 @@ class _FindBloodPageState extends State<FindBloodPage> with TickerProviderStateM
     } catch (e) {
       setState(() => _isLoadingLocation = false);
       print('Error centering map: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not get location: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
